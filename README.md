@@ -24,6 +24,7 @@ i otwórz http://localhost:8000.
 | `render.js` | renderer szablonów (współrzędne projektowe: A4 990×1400, baner 1400×735) |
 | `fonts.css`, `fonts/` | Lato hostowane lokalnie (z polskimi znakami) |
 | `vendor/` | `qrcode-generator` (kody QR), `jsPDF` (eksport PDF) |
+| `assets/` | oficjalne logo WMiI (pakiet PL): `wmii-poziom-podstawowe.png` na jasne tło, `wmii-poziom-negatyw.png` na ciemne |
 
 ## Szablony
 

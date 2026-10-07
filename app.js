@@ -557,6 +557,7 @@
       .catch(() => {})
       .then(draw);
     if (document.fonts) document.fonts.addEventListener('loadingdone', draw);
+    window.Poster.loadLogos().then(draw);
     restorePhoto();
   }
 

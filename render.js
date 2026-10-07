@@ -160,17 +160,43 @@
   }
 
   // ---------- elementy marki ----------
-  function drawUmk(ctx, cx, cy, s) {
+  // Oficjalne logo WMiI (pakiet PL) – PNG z przezroczystością, przycięte do zawartości.
+  const LOGO_FILES = {
+    base: 'assets/wmii-poziom-podstawowe.png', // na jasne tło
+    neg: 'assets/wmii-poziom-negatyw.png',     // na ciemne tło
+  };
+  const logos = {};
+  function loadLogos(prefix = '') {
+    return Promise.all(Object.entries(LOGO_FILES).map(([k, src]) => new Promise((res) => {
+      const i = new Image();
+      i.onload = () => { logos[k] = i; res(); };
+      i.onerror = () => res(); // brak pliku → zapasowe logo wektorowe
+      i.src = prefix + src;
+    })));
+  }
+
+  /** Logo WMiI; (cx, cy) – środek koła, s – skala (1 = rozmiar z plakatów A4). */
+  function drawUmk(ctx, cx, cy, s, variant = 'base') {
+    const img = logos[variant];
+    if (img) {
+      const h = 107.5 * s;
+      ctx.drawImage(img, cx - 37 * s, cy - 46.3 * s, h * img.width / img.height, h);
+      return;
+    }
+    drawUmkVector(ctx, cx, cy, s, variant === 'neg' ? '#fff' : UMK_BLUE);
+  }
+
+  function drawUmkVector(ctx, cx, cy, s, color) {
     ctx.save();
     ctx.translate(cx, cy);
     ctx.scale(s, s);
     const circle = (x, y, r, c) => { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = c; ctx.fill(); };
-    circle(0, 0, 37, UMK_BLUE);
+    circle(0, 0, 37, color);
     circle(-24.3, -35.1, 11.2, '#ffffff');
     circle(-24.3, -35.1, 6.2, GREEN);
     circle(0, -6, 12.4, YELLOW);
     // tekst dopasowany szerokością do oryginału
-    ctx.fillStyle = UMK_BLUE;
+    ctx.fillStyle = color;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.font = font(900, 100);
@@ -811,8 +837,7 @@
 
     drawWordmark(ctx, R, 70, 130, 360, { greenIt: st.greenIt, tagline: true, taglineColor: '#e6eef8' });
     if (st.showUmk) {
-      roundRect(ctx, 600, 62, 330, 112, 14, '#fff');
-      drawUmk(ctx, 655, 118, 0.85);
+      drawUmk(ctx, 708, 108, 0.92, 'neg');
     }
 
     const sp = names(st) + (st.affiliation ? `  ·  ${st.affiliation}` : '');
@@ -957,7 +982,7 @@
     return R;
   }
 
-  window.Poster = { render, FORMATS, TEMPLATES, MONTHS, DUO, fontsToLoad: [
+  window.Poster = { render, loadLogos, FORMATS, TEMPLATES, MONTHS, DUO, fontsToLoad: [
     font(300, 20), font(400, 20), font(700, 20), font(900, 20), font(700, 20, null, true), font(900, 20, null, true),
   ] };
 })();
