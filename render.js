@@ -186,6 +186,14 @@
     drawUmkVector(ctx, cx, cy, s, variant === 'neg' ? '#fff' : UMK_BLUE);
   }
 
+  /** Logo WMiI umieszczone lewym górnym rogiem w (x, y), o wysokości h. Zwraca szerokość. */
+  function drawLogo(ctx, x, y, h, variant = 'base') {
+    const s = h / 107.5;
+    drawUmk(ctx, x + 37 * s, y + 46.3 * s, s, variant);
+    const img = logos[variant];
+    return img ? h * img.width / img.height : 268 * s;
+  }
+
   function drawUmkVector(ctx, cx, cy, s, color) {
     ctx.save();
     ctx.translate(cx, cy);
@@ -387,7 +395,7 @@
     poly(ctx, [[300, 1248], [610, 1152], [990, 1180], [990, 1400], [300, 1400]], st.accent);
     poly(ctx, [[0, 1222], [290, 1143], [730, 1400], [0, 1400]], '#fffffb');
 
-    if (st.showUmk) drawUmk(ctx, 159, 146, 1);
+    drawUmk(ctx, 159, 146, 1);
     drawWordmark(ctx, R, 545.8, 165.6, 282.5, { greenIt: st.greenIt });
 
     const light = titleLight(st, false);
@@ -413,14 +421,14 @@
     rect(ctx, 0, 0, 1400, 990, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 1400, h: 990 });
 
-    poly(ctx, [[565, 0], [880, 0], [1090, 168], [440, 200]], '#2f7bd0', 0.92);
-    poly(ctx, [[0, 0], [565, 0], [430, 205], [0, 140]], '#ffffff');
-    poly(ctx, [[875, 0], [1400, 0], [1400, 140], [1100, 190]], BLUE);
-    poly(ctx, [[400, 990], [790, 772], [1400, 758], [1400, 990]], st.accent);
-    poly(ctx, [[655, 990], [770, 788], [1115, 812], [1075, 990]], '#fffffb');
+    poly(ctx, [[600, 0], [905, 0], [1110, 185], [475, 228]], '#2f7bd0', 0.92);
+    poly(ctx, [[0, 0], [600, 0], [465, 232], [0, 182]], '#ffffff');
+    poly(ctx, [[900, 0], [1400, 0], [1400, 150], [1115, 198]], BLUE);
+    poly(ctx, [[390, 990], [780, 745], [1400, 732], [1400, 990]], st.accent);
+    poly(ctx, [[640, 990], [760, 760], [1115, 784], [1075, 990]], '#fffffb');
 
-    if (st.showUmk) drawUmk(ctx, 115, 73, 1);
-    drawWordmark(ctx, R, 1070, 100, 285, { greenIt: st.greenIt });
+    drawUmk(ctx, 128, 108, 1);
+    drawWordmark(ctx, R, 1045, 112, 285, { greenIt: st.greenIt });
 
     const light = titleLight(st, true);
     const tc = light ? '#fff' : '#111';
@@ -434,11 +442,11 @@
     const spFirst = firstBl - fit.size * 0.95 - (spFit.lines.length - 1) * spFit.lh - 12;
     drawRich(ctx, R, spFit, 85, spFirst, { align: 'left', color: tc, shadow: light });
 
-    text(ctx, dateStr(st), 806, 840, { weight: 700, size: 20.5, family: 'arial' });
-    text(ctx, timeStr(st), 806, 862, { weight: 700, size: 20.5, family: 'arial' });
-    lines(ctx, placeLines(st), 803, 902, 20.5, { weight: 300, size: 20, color: '#222' });
+    text(ctx, dateStr(st), 800, 818, { weight: 700, size: 20.5, family: 'arial' });
+    text(ctx, timeStr(st), 800, 840, { weight: 700, size: 20.5, family: 'arial' });
+    lines(ctx, placeLines(st), 797, 880, 20.5, { weight: 300, size: 20, color: '#222' });
 
-    qrs(st).forEach((q, i) => qrItem(ctx, q, 1268, 1285, 802 + i * 92, 54, { labelSize: 20, family: 'arial' }));
+    qrs(st).forEach((q, i) => qrItem(ctx, q, 1268, 1285, 780 + i * 86, 54, { labelSize: 20, family: 'arial' }));
   }
 
   function classicBanner(ctx, R) {
@@ -446,8 +454,10 @@
     rect(ctx, 0, 0, 1400, 735, '#ffffff');
     rect(ctx, 0, 0, 760, 735, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 760, h: 735 });
+    poly(ctx, [[0, 0], [400, 0], [358, 170], [0, 150]], '#ffffff');
+    drawLogo(ctx, 60, 50, 88);
     poly(ctx, [[612, 0], [1400, 0], [1400, 97], [760, 160]], BLUE);
-    drawWordmark(ctx, R, 818, 93, 292, { greenIt: st.greenIt });
+    drawWordmark(ctx, R, 818, 97, 292, { greenIt: st.greenIt });
 
     const sps = speakerList(st);
     const affH = st.affiliation ? 28 : 0;
@@ -455,7 +465,7 @@
     // tytuł + prelegenci muszą skończyć się nad blokiem daty (~505)
     let fit, gap;
     for (let s = 34 * st.titleScale; s >= 20; s -= 1) {
-      fit = fitRich(ctx, st.title, { weight: 900, size: s, minSize: s, lh: 1.17, maxW: 545, upper: st.titleUpper });
+      fit = fitRich(ctx, st.title, { weight: 900, size: s, minSize: s, lh: 1.17, maxW: 525, upper: st.titleUpper });
       gap = Math.max(52, s * 1.9);
       if (230 + (fit.lines.length - 1) * fit.lh + gap + spH <= 500) break;
     }
@@ -470,8 +480,8 @@
 
     const q = qrs(st);
     if (q.length) {
-      rect(ctx, 1158, 515, 194, q.length > 1 ? 171 : 82, st.accent);
-      q.forEach((it, i) => qrItem(ctx, it, 1268, 1278, 520 + i * 92, 62, { labelSize: 21, family: 'arial' }));
+      rect(ctx, 1146, 515, 194, q.length > 1 ? 171 : 82, st.accent);
+      q.forEach((it, i) => qrItem(ctx, it, 1256, 1266, 520 + i * 92, 62, { labelSize: 21, family: 'arial' }));
     }
   }
 
@@ -493,7 +503,8 @@
     drawPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 1400 });
     shadeV(ctx, 0, 600, 990, 800, st.shade, 600, 1150);
     rect(ctx, 0, 0, 990, 218, 'rgba(28,28,28,0.88)');
-    drawWordmark(ctx, R, 290, 125, 410, { greenIt: st.greenIt, glow: true, tagline: true, taglineColor: '#ddd' });
+    drawLogo(ctx, 60, 60, 102, 'neg');
+    drawWordmark(ctx, R, 540, 120, 390, { greenIt: st.greenIt, glow: true, tagline: true, taglineColor: '#ddd' });
 
     const fit = fitRich(ctx, st.title, { weight: 700, size: 50 * st.titleScale, minSize: 26, lh: 1.05, maxW: 680, maxH: 3 * 53 * st.titleScale, upper: st.titleUpper });
     const firstBl = 1090 - (fit.lines.length - 1) * fit.lh;
@@ -529,21 +540,27 @@
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 1400, 735);
     }
-    drawWordmark(ctx, R, 115, 90, 385, { greenIt: st.greenIt, glow: true, tagline: true, taglineColor: '#ddd' });
+    const gt = ctx.createLinearGradient(0, 0, 0, 190);
+    gt.addColorStop(0, 'rgba(0,0,0,0.5)');
+    gt.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = gt;
+    ctx.fillRect(0, 0, 1400, 190);
+    drawLogo(ctx, 1114, 52, 90, 'neg');
+    drawWordmark(ctx, R, 115, 110, 385, { greenIt: st.greenIt, glow: true, tagline: true, taglineColor: '#ddd' });
 
     ctx.save();
     setShadow(ctx, R, true, 25);
-    text(ctx, (st.affiliation || '').toLocaleUpperCase('pl-PL'), 117, 172, { weight: 300, size: 25, color: '#fff' });
-    text(ctx, speakerList(st).join(', ').toLocaleUpperCase('pl-PL'), 117, 218, { weight: 700, size: 26, color: '#fff' });
+    text(ctx, (st.affiliation || '').toLocaleUpperCase('pl-PL'), 117, 182, { weight: 300, size: 25, color: '#fff' });
+    text(ctx, speakerList(st).join(', ').toLocaleUpperCase('pl-PL'), 117, 226, { weight: 700, size: 26, color: '#fff' });
     ctx.restore();
 
     const pl = placeLines(st);
     let fit;
     for (let s = 46 * st.titleScale; s >= 22; s -= 1) {
       fit = fitRich(ctx, st.title, { weight: 700, size: s, minSize: s, lh: 1.13, maxW: 600, upper: st.titleUpper });
-      if (270 + (fit.lines.length - 1) * fit.lh + 73 + 30 + 53 + (pl.length - 1) * 29 <= 565) break;
+      if (278 + (fit.lines.length - 1) * fit.lh + 73 + 30 + 53 + (pl.length - 1) * 29 <= 570) break;
     }
-    const last = drawRich(ctx, R, fit, 115, 270, { align: 'left', color: '#fff', shadow: true });
+    const last = drawRich(ctx, R, fit, 115, 278, { align: 'left', color: '#fff', shadow: true });
     ctx.save();
     setShadow(ctx, R, true, 25);
     let y = last + 73;
@@ -581,7 +598,7 @@
 
     rect(ctx, 0, 0, 366, 218, '#ffffff');
     rect(ctx, 366, 0, 624, 218, BLOCK_BLUE);
-    if (st.showUmk) drawUmk(ctx, 103, 108, 0.83);
+    drawUmk(ctx, 103, 108, 0.83);
     drawWordmark(ctx, R, 476, 125, 410, { greenIt: st.greenIt, tagline: true });
 
     const light = titleLight(st, false);
@@ -613,13 +630,14 @@
       g.addColorStop(0.65, `rgba(255,255,255,${st.bandOpacity * 0.85})`);
       g.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = g;
-      ctx.fillRect(0, 145, 1400, 590);
+      ctx.fillRect(0, 178, 1400, 557);
     }
-    rect(ctx, 0, 0, 650, 145, BLUE);
-    rect(ctx, 650, 0, 750, 145, 'rgba(2,76,161,0.6)');
-    drawWordmark(ctx, R, 115, 90, 385, { greenIt: st.greenIt, tagline: true });
+    rect(ctx, 0, 0, 650, 178, BLUE);
+    rect(ctx, 650, 0, 750, 178, 'rgba(2,76,161,0.6)');
+    drawLogo(ctx, 60, 52, 78, 'neg');
+    drawWordmark(ctx, R, 318, 108, 296, { greenIt: st.greenIt, tagline: true });
 
-    qrs(st, 'rev').forEach((it, i) => qrItem(ctx, it, 978 + i * 282, 1003 + i * 277, 45, 66, { labelSize: 25, labelWeight: 900, color: '#fff' }));
+    qrs(st, 'rev').forEach((it, i) => qrItem(ctx, it, 964 + i * 280, 990 + i * 280, 52, 70, { labelSize: 25, labelWeight: 900, color: '#fff' }));
 
     const light = titleLight(st, false);
     const tc = light ? '#fff' : '#111';
@@ -627,14 +645,14 @@
     const sp = names(st) + (st.affiliation ? ` (${st.affiliation})` : '');
     ctx.save();
     setShadow(ctx, R, light, 26);
-    text(ctx, sp, 115, 220, { weight: 900, size: 26, color: tc });
+    text(ctx, sp, 115, 244, { weight: 900, size: 26, color: tc });
     ctx.restore();
     let fit;
     for (let s = 46 * st.titleScale; s >= 22; s -= 1) {
       fit = fitRich(ctx, st.title, { weight: 900, size: s, minSize: s, lh: 1.13, maxW: 640, upper: st.titleUpper });
-      if (270 + (fit.lines.length - 1) * fit.lh + 79 + 30 + 52 + (pl.length - 1) * 28 <= 705) break;
+      if (292 + (fit.lines.length - 1) * fit.lh + 79 + 30 + 52 + (pl.length - 1) * 28 <= 680) break;
     }
-    const last = drawRich(ctx, R, fit, 115, 270, { align: 'left', color: tc, shadow: light });
+    const last = drawRich(ctx, R, fit, 115, 292, { align: 'left', color: tc, shadow: light });
     ctx.save();
     setShadow(ctx, R, light, 26);
     const y = last + 79;
@@ -705,15 +723,13 @@
     ctx.restore();
     poly(ctx, [[0, 880], [990, 760], [990, 774], [0, 894]], GREEN);
 
-    if (st.showUmk) {
-      poly(ctx, [[0, 0], [400, 0], [372, 170], [0, 170]], '#fff');
-      drawUmk(ctx, 95, 88, 0.88);
-    }
-    poly(ctx, [[640, 0], [990, 0], [990, 140], [616, 140]], BLUE);
-    drawWordmark(ctx, R, 665, 88, 285, { greenIt: st.greenIt });
+    poly(ctx, [[0, 0], [415, 0], [385, 192], [0, 192]], '#fff');
+    drawLogo(ctx, 60, 60, 92);
+    poly(ctx, [[600, 0], [990, 0], [990, 172], [574, 172]], BLUE);
+    drawWordmark(ctx, R, 640, 116, 290, { greenIt: st.greenIt });
 
     const sps = names(st);
-    const fit = fitTitleUntil(ctx, st, { top: 965, size: 66 * st.titleScale, minSize: 30, lh: 1.04, maxW: 850, weight: 900 }, 1170,
+    const fit = fitTitleUntil(ctx, st, { top: 965, size: 66 * st.titleScale, minSize: 30, lh: 1.04, maxW: 850, weight: 900 }, 1150,
       () => (sps ? 58 : 0));
     const last = drawRich(ctx, R, fit, 70, 965, { align: 'left', color: '#fff' });
     if (sps) {
@@ -725,19 +741,19 @@
       }
     }
 
-    rect(ctx, 70, 1215, 850, 2, 'rgba(255,255,255,0.3)');
+    rect(ctx, 70, 1192, 850, 2, 'rgba(255,255,255,0.3)');
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, String(dp.d), 66, 1340, { weight: 900, size: 110, color: '#fff' });
+      text(ctx, String(dp.d), 66, 1318, { weight: 900, size: 110, color: '#fff' });
       ctx.font = font(900, 110);
       const dx = 66 + ctx.measureText(String(dp.d)).width + 18;
-      text(ctx, `${dp.month} ${dp.y}`, dx, 1285, { weight: 900, size: 28, color: '#fff' });
-      text(ctx, dp.weekday, dx, 1313, { weight: 400, size: 22, color: '#cfe0f5' });
-      text(ctx, timeStr(st, true), dx, 1338, { weight: 400, size: 22, color: '#cfe0f5' });
+      text(ctx, `${dp.month} ${dp.y}`, dx, 1263, { weight: 900, size: 28, color: '#fff' });
+      text(ctx, dp.weekday, dx, 1291, { weight: 400, size: 22, color: '#cfe0f5' });
+      text(ctx, timeStr(st, true), dx, 1316, { weight: 400, size: 22, color: '#cfe0f5' });
     }
-    lines(ctx, placeLines(st), 445, 1283, 26, { weight: 400, size: 21, color: '#cfe0f5' });
+    lines(ctx, placeLines(st), 445, 1261, 26, { weight: 400, size: 21, color: '#cfe0f5' });
     const q = qrs(st);
-    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 96 + 6, 1245, 86, '#fff'));
+    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 92 + 12, 1222, 80, '#fff'));
   }
 
   function modernBanner(ctx, R) {
@@ -749,6 +765,8 @@
     drawPhoto(ctx, R, { x: 540, y: 0, w: 860, h: 735 });
     ctx.restore();
     poly(ctx, [[646, 0], [660, 0], [540, 735], [526, 735]], GREEN);
+    poly(ctx, [[1060, 0], [1400, 0], [1400, 162], [1034, 162]], '#ffffff');
+    drawLogo(ctx, 1114, 52, 90);
 
     drawWordmark(ctx, R, 70, 95, 270, { greenIt: st.greenIt, tagline: true, taglineColor: '#cfe0f5' });
     const sps = names(st);
@@ -770,8 +788,8 @@
     const q = qrs(st);
     if (q.length) {
       const w = q.length * 96 + 14;
-      roundRect(ctx, 1370 - w, 560, w, 150, 12, 'rgba(1,33,79,0.82)');
-      q.forEach((it, i) => qrTile(ctx, it, 1370 - w + 14 + i * 96, 574, 82, '#fff'));
+      roundRect(ctx, 1340 - w, 535, w, 150, 12, 'rgba(1,33,79,0.82)');
+      q.forEach((it, i) => qrTile(ctx, it, 1340 - w + 14 + i * 96, 549, 82, '#fff'));
     }
   }
 
@@ -836,9 +854,7 @@
     ctx.fillRect(0, 0, 990, 260);
 
     drawWordmark(ctx, R, 70, 130, 360, { greenIt: st.greenIt, tagline: true, taglineColor: '#e6eef8' });
-    if (st.showUmk) {
-      drawUmk(ctx, 708, 108, 0.92, 'neg');
-    }
+    drawUmk(ctx, 708, 108, 0.92, 'neg');
 
     const sp = names(st) + (st.affiliation ? `  ·  ${st.affiliation}` : '');
     const fit = fitRich(ctx, st.title, { weight: 900, size: 68 * st.titleScale, minSize: 30, lh: 1.04, maxW: 850, maxH: 4 * 72 * st.titleScale, upper: st.titleUpper });
@@ -853,7 +869,7 @@
     datePill(ctx, st, 70, 1150, 26, NAVY, GREEN);
     lines(ctx, placeLines(st), 72, 1268, 25, { weight: 400, size: 21, color: '#e6eef8' });
     const q = qrs(st);
-    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 100 + 14, 1232, 86, '#fff'));
+    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 94 + 14, 1222, 80, '#fff'));
   }
 
   function duoBanner(ctx, R) {
@@ -868,6 +884,12 @@
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 1400, 735);
 
+    const gt = ctx.createLinearGradient(0, 0, 0, 200);
+    gt.addColorStop(0, 'rgba(1,20,50,0.6)');
+    gt.addColorStop(1, 'rgba(1,20,50,0)');
+    ctx.fillStyle = gt;
+    ctx.fillRect(0, 0, 1400, 200);
+    drawLogo(ctx, 1106, 52, 90, 'neg');
     drawWordmark(ctx, R, 70, 95, 270, { greenIt: st.greenIt, tagline: true, taglineColor: '#e6eef8' });
     const sp = names(st) + (st.affiliation ? `  ·  ${st.affiliation}` : '');
     ctx.save();
@@ -879,7 +901,7 @@
     datePill(ctx, st, 70, 585, 23, NAVY, GREEN);
     textFit(ctx, placeOneLine(st), 72, 676, 1000, { size: 19, color: '#e6eef8' });
     const q = qrs(st);
-    q.forEach((it, i) => qrTile(ctx, it, 1340 - (q.length - i) * 98 + 12, 575, 86, '#fff'));
+    q.forEach((it, i) => qrTile(ctx, it, 1340 - (q.length - i) * 94 + 14, 560, 80, '#fff'));
   }
 
   // ---------- MINIMALNY ----------
@@ -890,23 +912,23 @@
     rect(ctx, 0, 0, 990, 1400, PAPER);
     rect(ctx, 60, 60, 340, 92, BLUE);
     drawWordmark(ctx, R, 82, 122, 296, { greenIt: st.greenIt });
-    if (st.showUmk) drawUmk(ctx, 692, 106, 0.85);
+    drawUmk(ctx, 692, 106, 0.85);
 
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, `${dp.dd}.${dp.mm}`, 52, 410, { weight: 900, size: 200, color: BLUE });
+      text(ctx, `${dp.dd}.${dp.mm}`, 60, 410, { weight: 900, size: 200, color: BLUE });
       text(ctx, `${dp.weekday}, ${dp.d} ${dp.month} ${dp.y}`, 62, 466, { weight: 700, size: 28, color: '#111' });
       text(ctx, timeStr(st), 62, 500, { weight: 400, size: 26, color: '#444' });
     }
 
-    rect(ctx, 76, 556, 870, 450, GREEN);
-    rect(ctx, 60, 540, 870, 450, st.bgColor);
-    drawPhoto(ctx, R, { x: 60, y: 540, w: 870, h: 450 });
+    rect(ctx, 76, 538, 854, 430, GREEN);
+    rect(ctx, 60, 522, 854, 430, st.bgColor);
+    drawPhoto(ctx, R, { x: 60, y: 522, w: 854, h: 430 });
 
     const sps = names(st);
-    const fit = fitTitleUntil(ctx, st, { top: 1088, size: 58 * st.titleScale, minSize: 26, lh: 1.06, maxW: 870, weight: 900 }, 1268,
+    const fit = fitTitleUntil(ctx, st, { top: 1046, size: 58 * st.titleScale, minSize: 26, lh: 1.06, maxW: 870, weight: 900 }, 1196,
       () => (sps ? 50 : 0));
-    const last = drawRich(ctx, R, fit, 60, 1088, { align: 'left', color: '#111' });
+    const last = drawRich(ctx, R, fit, 60, 1046, { align: 'left', color: '#111' });
     if (sps) {
       text(ctx, sps, 62, last + 50, { weight: 900, size: 28, color: BLUE });
       if (st.affiliation) {
@@ -915,41 +937,42 @@
       }
     }
 
-    rect(ctx, 60, 1290, 870, 3, '#111');
+    rect(ctx, 60, 1226, 870, 3, '#111');
     const pl = placeLines(st);
     const pl2 = pl.length > 2 ? [pl.slice(0, -1).join(' '), pl[pl.length - 1]] : pl;
-    lines(ctx, pl2, 60, 1330, 25, { weight: 400, size: 20, color: '#333' });
+    lines(ctx, pl2, 60, 1268, 25, { weight: 400, size: 20, color: '#333' });
     const q = qrs(st);
-    q.forEach((it, i) => qrTile(ctx, it, 930 - (q.length - i) * 84 + 18, 1306, 66, '#333'));
+    q.forEach((it, i) => qrTile(ctx, it, 930 - (q.length - i) * 82 + 16, 1242, 66, '#333'));
   }
 
   function minimalBanner(ctx, R) {
     const st = R.st;
     rect(ctx, 0, 0, 1400, 735, PAPER);
-    rect(ctx, 946, 74, 400, 600, GREEN);
-    rect(ctx, 930, 58, 400, 600, st.bgColor);
-    drawPhoto(ctx, R, { x: 930, y: 58, w: 400, h: 600 });
+    rect(ctx, 936, 66, 388, 600, GREEN);
+    rect(ctx, 920, 50, 388, 600, st.bgColor);
+    drawPhoto(ctx, R, { x: 920, y: 50, w: 388, h: 600 });
 
     rect(ctx, 60, 58, 280, 76, BLUE);
     drawWordmark(ctx, R, 78, 110, 244, { greenIt: st.greenIt });
+    drawLogo(ctx, 384, 50, 90);
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, `${dp.dd}.${dp.mm}`, 54, 275, { weight: 900, size: 128, color: BLUE });
+      text(ctx, `${dp.dd}.${dp.mm}`, 60, 275, { weight: 900, size: 128, color: BLUE });
       ctx.font = font(900, 128);
-      const dx = 54 + ctx.measureText(`${dp.dd}.${dp.mm}`).width + 26;
+      const dx = 60 + ctx.measureText(`${dp.dd}.${dp.mm}`).width + 26;
       text(ctx, `${dp.weekday}, ${dp.d} ${dp.month} ${dp.y}`, dx, 232, { weight: 700, size: 24, color: '#111' });
       text(ctx, timeStr(st), dx, 266, { weight: 400, size: 22, color: '#444' });
     }
     const sps = names(st);
-    const fit = fitTitleUntil(ctx, st, { top: 360, size: 46 * st.titleScale, minSize: 22, lh: 1.08, maxW: 800, weight: 900 }, 585,
+    const fit = fitTitleUntil(ctx, st, { top: 360, size: 46 * st.titleScale, minSize: 22, lh: 1.08, maxW: 800, weight: 900 }, 560,
       () => (sps ? 44 : 0));
     const last = drawRich(ctx, R, fit, 60, 360, { align: 'left', color: '#111' });
     if (sps) text(ctx, sps + (st.affiliation ? `  —  ${st.affiliation}` : ''), 62, last + 44, { weight: 900, size: 24, color: BLUE });
 
-    rect(ctx, 60, 612, 820, 3, '#111');
-    textFit(ctx, placeOneLine(st), 60, 652, 680, { size: 18, color: '#333' });
+    rect(ctx, 60, 590, 820, 3, '#111');
+    textFit(ctx, placeOneLine(st), 60, 630, 680, { size: 18, color: '#333' });
     const q = qrs(st);
-    q.forEach((it, i) => qrTile(ctx, it, 880 - (q.length - i) * 64 + 8, 628, 52, '#333'));
+    q.forEach((it, i) => qrTile(ctx, it, 880 - (q.length - i) * 66 + 12, 604, 54, '#333'));
   }
 
   const TEMPLATES = {

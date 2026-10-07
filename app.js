@@ -23,7 +23,6 @@
     shade: 0.45,
     titleColor: 'auto',
     titleScale: 1,
-    showUmk: true,
     greenIt: true,
     showQr: true,
     duo: 'bluegreen',
@@ -298,7 +297,7 @@
 
   // ---------------------------------------------------------------- bindings
   const TEXT_FIELDS = ['title', 'speakers', 'affiliation', 'date', 'time', 'room', 'place', 'titleColor', 'duo'];
-  const CHECKS = ['titleUpper', 'band', 'showUmk', 'greenIt', 'showQr'];
+  const CHECKS = ['titleUpper', 'band', 'greenIt', 'showQr'];
   const RANGES = [
     ['bandOpacity', (v) => Math.round(v * 100) + '%'],
     ['shade', (v) => Math.round(v * 100) + '%'],
@@ -327,7 +326,6 @@
     $('shadeField').hidden = t !== 'dark' && t !== 'duo';
     $('duo').parentElement.hidden = t !== 'duo';
     $('titleColor').parentElement.hidden = !hasBand;
-    $('showUmk').parentElement.hidden = t === 'dark';
     $('qrFields').hidden = !st.showQr;
     $('btnPdf').disabled = st.format === 'banner';
     $('btnPdf').title = st.format === 'banner' ? 'PDF dostępny dla formatów A4' : '';
