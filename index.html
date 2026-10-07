@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>meetit.live – generator plakatów</title>
+  <meta name="description" content="Generator plakatów i banerów spotkań meetit.live (WMiI UMK).">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23024ca1'/%3E%3Ctext x='32' y='44' font-family='Arial' font-weight='900' font-size='30' text-anchor='middle' fill='%23aad337'%3Eit%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="fonts.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="wm">meet<b>it</b>.live</span> <span class="sub">generator plakatów</span></div>
+    <div class="project-actions">
+      <button type="button" id="btnSave" class="ghost" title="Zapisz projekt (z zdjęciem) do pliku JSON">Zapisz projekt</button>
+      <label class="ghost btnlike" title="Wczytaj projekt z pliku JSON">Wczytaj<input type="file" id="fileProject" accept=".json,application/json" hidden></label>
+      <button type="button" id="btnReset" class="ghost" title="Przywróć przykładowe dane">Nowy</button>
+    </div>
+  </header>
+
+  <main class="app">
+    <aside class="panel" id="panel">
+      <section>
+        <h2>Szablon</h2>
+        <div id="templates" class="templates"></div>
+      </section>
+
+      <section>
+        <h2>Treść</h2>
+        <label class="field">Tytuł
+          <textarea id="title" rows="3" spellcheck="true"></textarea>
+          <small>Enter = nowa linia, <code>*tekst*</code> = kursywa</small>
+        </label>
+        <label class="check"><input type="checkbox" id="titleUpper"> WIELKIE LITERY w tytule</label>
+        <label class="field">Prelegenci <small class="inline">(jeden w linii)</small>
+          <textarea id="speakers" rows="2"></textarea>
+        </label>
+        <label class="field">Firma / afiliacja
+          <input id="affiliation" type="text">
+        </label>
+      </section>
+
+      <section>
+        <h2>Termin i miejsce</h2>
+        <div class="row3">
+          <label class="field">Data<input id="date" type="date"></label>
+          <label class="field">Godzina<input id="time" type="time"></label>
+          <label class="field">Sala<input id="room" type="text"></label>
+        </div>
+        <label class="field">Miejsce
+          <textarea id="place" rows="3"></textarea>
+        </label>
+      </section>
+
+      <section>
+        <h2>Zdjęcie</h2>
+        <label class="drop" id="dropzone">
+          <input type="file" id="filePhoto" accept="image/*" hidden>
+          <span id="dropText">Wybierz plik lub przeciągnij zdjęcie</span>
+        </label>
+        <div class="photo-controls" id="photoControls" hidden>
+          <label class="field">Powiększenie <output id="zoomOut"></output>
+            <input id="zoom" type="range" min="1" max="4" step="0.01">
+          </label>
+          <div class="btns">
+            <button type="button" id="btnFit">Reset kadru</button>
+            <button type="button" id="btnRemovePhoto" class="danger">Usuń zdjęcie</button>
+          </div>
+          <small>Przeciągnij podgląd, by przesunąć kadr; kółko myszy przybliża. Kadr jest zapamiętywany osobno dla każdego formatu.</small>
+        </div>
+      </section>
+
+      <section>
+        <h2>Wygląd</h2>
+        <div class="field">Kolor akcentu
+          <div class="swatches" id="accentSwatches"></div>
+        </div>
+        <div class="field">Kolor tła pod zdjęciem <small class="inline">(widoczny przy zdjęciu z przezroczystym tłem)</small>
+          <div class="swatches" id="bgSwatches"></div>
+        </div>
+        <label class="check"><input type="checkbox" id="band"> <span id="bandLabel">Półprzezroczysty pas pod tytułem</span></label>
+        <label class="field slim" id="bandOpacityField">Krycie pasa <output id="bandOpacityOut"></output>
+          <input id="bandOpacity" type="range" min="0.1" max="1" step="0.05">
+        </label>
+        <label class="field slim" id="shadeField">Przyciemnienie zdjęcia <output id="shadeOut"></output>
+          <input id="shade" type="range" min="0" max="0.9" step="0.05">
+        </label>
+        <label class="field">Paleta duotone
+          <select id="duo">
+            <option value="bluegreen">Granat → limonka (marka)</option>
+            <option value="blue">Granat → błękit</option>
+            <option value="mono">Czarno-białe</option>
+            <option value="sunset">Fiolet → pomarańcz</option>
+          </select>
+        </label>
+        <label class="field">Kolor tekstu tytułu
+          <select id="titleColor">
+            <option value="auto">Automatyczny</option>
+            <option value="dark">Ciemny</option>
+            <option value="light">Jasny (z cieniem)</option>
+          </select>
+        </label>
+        <label class="field slim">Rozmiar tytułu <output id="titleScaleOut"></output>
+          <input id="titleScale" type="range" min="0.6" max="1.4" step="0.02">
+        </label>
+        <label class="check"><input type="checkbox" id="showUmk"> Logo UMK</label>
+        <label class="check"><input type="checkbox" id="greenIt"> Zielone „it” w logo meetit.live</label>
+      </section>
+
+      <section>
+        <h2>Kody QR</h2>
+        <label class="check"><input type="checkbox" id="showQr"> Pokaż kody QR</label>
+        <div id="qrFields">
+          <fieldset>
+            <legend>Kod 1</legend>
+            <div class="row2">
+              <label class="field">Etykieta<input id="qr1label" type="text"></label>
+              <label class="field">Podpis<input id="qr1text" type="text"></label>
+            </div>
+            <label class="field">Adres URL<input id="qr1url" type="url" placeholder="https://"></label>
+          </fieldset>
+          <fieldset>
+            <legend>Kod 2</legend>
+            <div class="row2">
+              <label class="field">Etykieta<input id="qr2label" type="text"></label>
+              <label class="field">Podpis<input id="qr2text" type="text"></label>
+            </div>
+            <label class="field">Adres URL<input id="qr2url" type="url" placeholder="https://"></label>
+          </fieldset>
+        </div>
+      </section>
+    </aside>
+
+    <section class="stage">
+      <div class="toolbar">
+        <div class="seg" id="formats"></div>
+        <div class="export">
+          <select id="quality" title="Rozdzielczość eksportu">
+            <option value="1">Standard</option>
+            <option value="2">2× (druk wysokiej jakości)</option>
+          </select>
+          <button type="button" class="primary" data-export="png">PNG</button>
+          <button type="button" class="primary" data-export="jpg">JPG</button>
+          <button type="button" class="primary" data-export="pdf" id="btnPdf">PDF</button>
+          <button type="button" id="btnAll" title="Pobierz wszystkie formaty dostępne w tym szablonie">Wszystkie formaty</button>
+        </div>
+      </div>
+      <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="preview" aria-label="Podgląd plakatu"></canvas>
+      </div>
+      <p class="meta" id="meta"></p>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="vendor/qrcode.min.js"></script>
+  <script src="vendor/jspdf.umd.min.js" defer></script>
+  <script src="render.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
