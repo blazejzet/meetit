@@ -1,5 +1,5 @@
 /* meetit.live – renderer plakatów (Canvas 2D).
- * Wszystkie layouty rysowane są we współrzędnych projektowych (np. 990×1400 dla A4),
+ * Wszystkie layouty rysowane są we współrzędnych projektowych (np. 990×1400 dla A3/A4 pion),
  * a kontekst jest skalowany do docelowej rozdzielczości. */
 (function () {
   'use strict';
@@ -10,11 +10,25 @@
   const YELLOW = '#ffcc00';
   const ARIAL = "Arial, 'Helvetica Neue', Helvetica, 'Liberation Sans', sans-serif";
 
-  const FORMATS = {
-    a4p: { label: 'A4 pion', design: [990, 1400], px: [2481, 3508], suffix: 'P', pdf: 'a4p' },
-    a4l: { label: 'A4 poziom', design: [1400, 990], px: [3508, 2481], suffix: 'L', pdf: 'a4l' },
-    banner: { label: 'Baner 1200×630', design: [1400, 735], px: [1200, 630], suffix: 'Z', pdf: null },
+  // A3 i A4 mają te same proporcje (1:√2), więc dzielą współrzędne projektowe.
+  const PAPERS = {
+    a3: { label: 'A3', mm: [297, 420] },
+    a4: { label: 'A4', mm: [210, 297] },
   };
+  const FORMATS = {
+    portrait: { label: 'pion', design: [990, 1400], suffix: 'P', paper: true },
+    landscape: { label: 'poziom', design: [1400, 990], suffix: 'L', paper: true },
+    banner: { label: 'Baner 1200×630', design: [1400, 735], px: [1200, 630], suffix: 'Z' },
+  };
+
+  /** Wymiary wyjściowe: etykieta, piksele (300 dpi dla formatów papierowych) i mm (null dla banera). */
+  function formatSize(format, paper) {
+    const f = FORMATS[format];
+    if (!f.paper) return { label: f.label, px: f.px, mm: null };
+    const p = PAPERS[paper] || PAPERS.a3;
+    const mm = f.design[0] > f.design[1] ? [p.mm[1], p.mm[0]] : p.mm;
+    return { label: `${p.label} ${f.label}`, px: mm.map((v) => Math.ceil(v / 25.4 * 300)), mm };
+  }
 
   const MONTHS = ['stycznia', 'lutego', 'marca', 'kwietnia', 'maja', 'czerwca', 'lipca',
     'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
@@ -64,6 +78,31 @@
   function lines(ctx, arr, x, y, lh, o) {
     arr.forEach((s, i) => text(ctx, s, x, y + i * lh, o));
     return y + (arr.length - 1) * lh;
+  }
+
+  // ---------- kolory ----------
+  function hex(c) {
+    let h = c.slice(1);
+    if (h.length === 3) h = h.replace(/./g, '$&$&');
+    const n = parseInt(h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgba(c, a) { return `rgba(${hex(c).join(',')},${a})`; }
+  /** Kolor pośredni między a i b (t = 0…1). */
+  function mix(a, b, t) {
+    const A = hex(a), B = hex(b);
+    return '#' + A.map((v, i) => Math.round(v + (B[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  }
+  /** Czy na tym kolorze lepiej czytać ciemny tekst (luminancja WCAG). */
+  function isLight(c) {
+    const [r, g, b] = hex(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.18;
+  }
+  /** Kolory tekstu i logo pasujące do tła bg. */
+  function onColor(bg) {
+    return isLight(bg)
+      ? { fg: '#111', muted: mix(bg, '#000', 0.7), line: 'rgba(0,0,0,0.2)', tex: 'rgba(0,0,0,0.05)', logo: 'base' }
+      : { fg: '#fff', muted: mix(bg, '#fff', 0.8), line: 'rgba(255,255,255,0.3)', tex: 'rgba(255,255,255,0.05)', logo: 'neg' };
   }
 
   // ---------- rich text (tytuł z *kursywą*) ----------
@@ -175,7 +214,7 @@
     })));
   }
 
-  /** Logo WMiI; (cx, cy) – środek koła, s – skala (1 = rozmiar z plakatów A4). */
+  /** Logo WMiI; (cx, cy) – środek koła, s – skala (1 = rozmiar z plakatów w pionie). */
   function drawUmk(ctx, cx, cy, s, variant = 'base') {
     const img = logos[variant];
     if (img) {
@@ -223,7 +262,8 @@
 
   /** Wordmark "meetit.live" o zadanej szerokości. Zwraca rozmiar fontu. */
   function drawWordmark(ctx, R, x, baseline, width, o = {}) {
-    const parts = [['meet', '#fff'], ['it', o.greenIt === false ? '#fff' : GREEN], ['.live', '#fff']];
+    const c = o.color || '#fff';
+    const parts = [['meet', c], ['it', o.greenIt === false ? c : GREEN], ['.live', c]];
     ctx.save();
     ctx.font = font(900, 100);
     const size = 100 * width / ctx.measureText('meetit.live').width;
@@ -244,10 +284,10 @@
     if (o.tagline) {
       const ts = width * 0.037;
       const ty = baseline + size * 0.36;
-      const c = o.taglineColor || '#fff';
-      text(ctx, 'MATEMATYKA', x + width * 0.01, ty, { size: ts, color: c });
-      text(ctx, 'ANALIZA DANYCH', x + width / 2, ty, { size: ts, color: c, align: 'center' });
-      text(ctx, 'INFORMATYKA', x + width * 0.99, ty, { size: ts, color: c, align: 'right' });
+      const tc = o.taglineColor || c;
+      text(ctx, 'MATEMATYKA', x + width * 0.01, ty, { size: ts, color: tc });
+      text(ctx, 'ANALIZA DANYCH', x + width / 2, ty, { size: ts, color: tc, align: 'center' });
+      text(ctx, 'INFORMATYKA', x + width * 0.99, ty, { size: ts, color: tc, align: 'right' });
     }
     return size;
   }
@@ -299,7 +339,60 @@
   }
 
   // ---------- zdjęcie ----------
-  function drawPhoto(ctx, R, r) {
+  /**
+   * Zdjęcie przycięte do prostokąta r, z korektą (jasność / kontrast / nasycenie)
+   * i opcjonalnie przemapowane na dwa kolory (duotone).
+   */
+  function drawPhoto(ctx, R, r, duo) {
+    const st = R.st;
+    if (!R.img || (!duo && !st.brightness && !st.contrast && !st.saturation)) { drawPhotoRaw(ctx, R, r); return; }
+    const k = R.k;
+    const w = Math.max(1, Math.round(r.w * k));
+    const h = Math.max(1, Math.round(r.h * k));
+    const oc = document.createElement('canvas');
+    oc.width = w;
+    oc.height = h;
+    const o = oc.getContext('2d');
+    o.setTransform(k, 0, 0, k, -r.x * k, -r.y * k);
+    drawPhotoRaw(o, R, r);
+    const id = o.getImageData(0, 0, w, h);
+    photoFx(id.data, st, duo);
+    o.putImageData(id, 0, 0);
+    ctx.drawImage(oc, r.x, r.y, r.w, r.h);
+  }
+
+  function photoFx(p, st, duo) {
+    const b = (st.brightness || 0) / 100;
+    const c = (st.contrast || 0) / 100;
+    const sat = 1 + (st.saturation || 0) / 100;
+    // jasność jako gamma (nie przepala bieli ani nie szarzy czerni), kontrast wokół środka
+    const gamma = Math.pow(2, -b * 1.3);
+    const cf = c >= 0 ? 1 + c * 1.5 : 1 + c * 0.8;
+    const lut = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+      lut[i] = Math.min(1, Math.max(0, (Math.pow(i / 255, gamma) - 0.5) * cf + 0.5)) * 255;
+    }
+    if (duo) {
+      const d = hex(st.duoDark), l = hex(st.duoLight);
+      for (let i = 0; i < p.length; i += 4) {
+        let t = (0.299 * lut[p[i]] + 0.587 * lut[p[i + 1]] + 0.114 * lut[p[i + 2]]) / 255;
+        t = t * t * (3 - 2 * t); // lekkie podbicie kontrastu
+        p[i] = d[0] + (l[0] - d[0]) * t;
+        p[i + 1] = d[1] + (l[1] - d[1]) * t;
+        p[i + 2] = d[2] + (l[2] - d[2]) * t;
+      }
+      return;
+    }
+    for (let i = 0; i < p.length; i += 4) {
+      const r = lut[p[i]], g = lut[p[i + 1]], bl = lut[p[i + 2]];
+      const L = 0.299 * r + 0.587 * g + 0.114 * bl;
+      p[i] = L + (r - L) * sat; // Uint8ClampedArray sam przycina do 0…255
+      p[i + 1] = L + (g - L) * sat;
+      p[i + 2] = L + (bl - L) * sat;
+    }
+  }
+
+  function drawPhotoRaw(ctx, R, r) {
     const st = R.st;
     const img = R.img;
     R.photoRect = r;
@@ -384,7 +477,7 @@
   // =====================================================================
   //  SZABLON: KLASYCZNY (skośne kształty)
   // =====================================================================
-  function classicA4p(ctx, R) {
+  function classicPortrait(ctx, R) {
     const st = R.st;
     rect(ctx, 0, 0, 990, 1400, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 1400 });
@@ -416,7 +509,7 @@
     qrs(st).forEach((q, i) => qrItem(ctx, q, 765, 778, 1180 + i * 90, 62, { labelSize: 20, family: 'arial' }));
   }
 
-  function classicA4l(ctx, R) {
+  function classicLandscape(ctx, R) {
     const st = R.st;
     rect(ctx, 0, 0, 1400, 990, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 1400, h: 990 });
@@ -488,21 +581,21 @@
   // =====================================================================
   //  SZABLON: CIEMNY (pełne zdjęcie, ciemny pasek u góry)
   // =====================================================================
-  function shadeV(ctx, x, y, w, h, a, from, to) {
+  function shadeV(ctx, x, y, w, h, a, from, to, color = '#000000') {
     if (a <= 0) return;
     const g = ctx.createLinearGradient(0, from, 0, to);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, `rgba(0,0,0,${a})`);
+    g.addColorStop(0, rgba(color, 0));
+    g.addColorStop(1, rgba(color, a));
     ctx.fillStyle = g;
     ctx.fillRect(x, y, w, h);
   }
 
-  function darkA4p(ctx, R) {
+  function darkPortrait(ctx, R) {
     const st = R.st;
     rect(ctx, 0, 0, 990, 1400, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 1400 });
-    shadeV(ctx, 0, 600, 990, 800, st.shade, 600, 1150);
-    rect(ctx, 0, 0, 990, 218, 'rgba(28,28,28,0.88)');
+    shadeV(ctx, 0, 600, 990, 800, st.shade, 600, 1150, st.shadeColor);
+    rect(ctx, 0, 0, 990, 218, rgba(st.shadeColor, 0.88));
     drawLogo(ctx, 60, 60, 102, 'neg');
     drawWordmark(ctx, R, 540, 120, 390, { greenIt: st.greenIt, glow: true, tagline: true, taglineColor: '#ddd' });
 
@@ -534,15 +627,15 @@
     drawPhoto(ctx, R, { x: 0, y: 0, w: 1400, h: 735 });
     if (st.shade > 0) {
       const g = ctx.createLinearGradient(0, 0, 950, 0);
-      g.addColorStop(0, `rgba(0,0,0,${st.shade})`);
-      g.addColorStop(0.55, `rgba(0,0,0,${st.shade * 0.7})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
+      g.addColorStop(0, rgba(st.shadeColor, st.shade));
+      g.addColorStop(0.55, rgba(st.shadeColor, st.shade * 0.7));
+      g.addColorStop(1, rgba(st.shadeColor, 0));
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, 1400, 735);
     }
     const gt = ctx.createLinearGradient(0, 0, 0, 190);
-    gt.addColorStop(0, 'rgba(0,0,0,0.5)');
-    gt.addColorStop(1, 'rgba(0,0,0,0)');
+    gt.addColorStop(0, rgba(st.shadeColor, 0.5));
+    gt.addColorStop(1, rgba(st.shadeColor, 0));
     ctx.fillStyle = gt;
     ctx.fillRect(0, 0, 1400, 190);
     drawLogo(ctx, 1114, 52, 90, 'neg');
@@ -577,7 +670,7 @@
   // =====================================================================
   const BLOCK_BLUE = '#0b3fe6';
 
-  function blockA4p(ctx, R) {
+  function blockPortrait(ctx, R) {
     const st = R.st;
     rect(ctx, 0, 0, 990, 1400, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 1400 });
@@ -712,84 +805,101 @@
     return fit;
   }
 
+  /** Kolor c użyty jako tekst na jasnym papierze – zbyt jasny jest przyciemniany. */
+  function onPaper(c) { return isLight(c) ? mix(c, '#000', 0.6) : c; }
+
+  /** Tekst na tle bg w akcentach (pigułka z datą, plakietka) – granat albo biel. */
+  function inkOn(bg) { return isLight(bg) ? NAVY : '#fff'; }
+
+  /** „Imię Nazwisko  ·  Firma” – nazwiska pogrubione, afiliacja cieńsza; całość zmniejszana do maxW. */
+  function speakerLine(ctx, st, x, y, o) {
+    const sps = names(st);
+    if (!sps) return;
+    const aff = st.affiliation ? (o.sep || '  ·  ') + st.affiliation : '';
+    const as = o.size * 0.93;
+    ctx.font = font(900, o.size);
+    const w1 = ctx.measureText(sps).width;
+    ctx.font = font(o.affWeight || 300, as);
+    const w2 = ctx.measureText(aff).width;
+    const s = Math.min(1, o.maxW / (w1 + w2));
+    text(ctx, sps, x, y, { weight: 900, size: o.size * s, color: o.color });
+    if (aff) text(ctx, aff, x + w1 * s, y, { weight: o.affWeight || 300, size: as * s, color: o.affColor });
+  }
+
   // ---------- NOWOCZESNY ----------
-  function modernA4p(ctx, R) {
+  function modernPortrait(ctx, R) {
     const st = R.st;
-    rect(ctx, 0, 0, 990, 1400, BLUE);
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 990, 1400, P);
     ctx.save();
     clipPoly(ctx, [[0, 0], [990, 0], [990, 760], [0, 880]]);
     rect(ctx, 0, 0, 990, 880, st.bgColor);
     drawPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 880 });
     ctx.restore();
-    poly(ctx, [[0, 880], [990, 760], [990, 774], [0, 894]], GREEN);
+    poly(ctx, [[0, 880], [990, 760], [990, 774], [0, 894]], H);
 
     poly(ctx, [[0, 0], [415, 0], [385, 192], [0, 192]], '#fff');
     drawLogo(ctx, 60, 60, 92);
-    poly(ctx, [[600, 0], [990, 0], [990, 172], [574, 172]], BLUE);
-    drawWordmark(ctx, R, 640, 116, 290, { greenIt: st.greenIt });
+    poly(ctx, [[600, 0], [990, 0], [990, 172], [574, 172]], P);
+    drawWordmark(ctx, R, 640, 116, 290, { greenIt: st.greenIt, color: on.fg });
 
     const sps = names(st);
     const fit = fitTitleUntil(ctx, st, { top: 965, size: 66 * st.titleScale, minSize: 30, lh: 1.04, maxW: 850, weight: 900 }, 1150,
       () => (sps ? 58 : 0));
-    const last = drawRich(ctx, R, fit, 70, 965, { align: 'left', color: '#fff' });
-    if (sps) {
-      text(ctx, sps, 72, last + 58, { weight: 900, size: 30, color: GREEN });
-      if (st.affiliation) {
-        ctx.font = font(900, 30);
-        const w = ctx.measureText(sps).width;
-        text(ctx, '  ·  ' + st.affiliation, 72 + w, last + 58, { weight: 300, size: 28, color: '#fff' });
-      }
-    }
+    const last = drawRich(ctx, R, fit, 70, 965, { align: 'left', color: on.fg });
+    speakerLine(ctx, st, 72, last + 58, { size: 30, color: H, affColor: on.fg, maxW: 850 });
 
-    rect(ctx, 70, 1192, 850, 2, 'rgba(255,255,255,0.3)');
+    rect(ctx, 70, 1192, 850, 2, on.line);
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, String(dp.d), 66, 1318, { weight: 900, size: 110, color: '#fff' });
+      text(ctx, String(dp.d), 66, 1318, { weight: 900, size: 110, color: on.fg });
       ctx.font = font(900, 110);
       const dx = 66 + ctx.measureText(String(dp.d)).width + 18;
-      text(ctx, `${dp.month} ${dp.y}`, dx, 1263, { weight: 900, size: 28, color: '#fff' });
-      text(ctx, dp.weekday, dx, 1291, { weight: 400, size: 22, color: '#cfe0f5' });
-      text(ctx, timeStr(st, true), dx, 1316, { weight: 400, size: 22, color: '#cfe0f5' });
+      text(ctx, `${dp.month} ${dp.y}`, dx, 1263, { weight: 900, size: 28, color: on.fg });
+      text(ctx, dp.weekday, dx, 1291, { weight: 400, size: 22, color: on.muted });
+      text(ctx, timeStr(st, true), dx, 1316, { weight: 400, size: 22, color: on.muted });
     }
-    lines(ctx, placeLines(st), 445, 1261, 26, { weight: 400, size: 21, color: '#cfe0f5' });
+    lines(ctx, placeLines(st), 445, 1261, 26, { weight: 400, size: 21, color: on.muted });
     const q = qrs(st);
-    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 92 + 12, 1222, 80, '#fff'));
+    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 92 + 12, 1222, 80, on.fg));
   }
 
   function modernBanner(ctx, R) {
     const st = R.st;
-    rect(ctx, 0, 0, 1400, 735, BLUE);
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 1400, 735, P);
     ctx.save();
     clipPoly(ctx, [[660, 0], [1400, 0], [1400, 735], [540, 735]]);
     rect(ctx, 540, 0, 860, 735, st.bgColor);
     drawPhoto(ctx, R, { x: 540, y: 0, w: 860, h: 735 });
     ctx.restore();
-    poly(ctx, [[646, 0], [660, 0], [540, 735], [526, 735]], GREEN);
+    poly(ctx, [[646, 0], [660, 0], [540, 735], [526, 735]], H);
     poly(ctx, [[1060, 0], [1400, 0], [1400, 162], [1034, 162]], '#ffffff');
     drawLogo(ctx, 1114, 52, 90);
 
-    drawWordmark(ctx, R, 70, 95, 270, { greenIt: st.greenIt, tagline: true, taglineColor: '#cfe0f5' });
+    drawWordmark(ctx, R, 70, 95, 270, { greenIt: st.greenIt, tagline: true, color: on.fg, taglineColor: on.muted });
     const sps = names(st);
     const fit = fitTitleUntil(ctx, st, { top: 215, size: 50 * st.titleScale, minSize: 24, lh: 1.08, maxW: 470, weight: 900 }, 545,
       () => (sps ? 50 : 0) + (st.affiliation ? 30 : 0));
-    const last = drawRich(ctx, R, fit, 70, 215, { align: 'left', color: '#fff' });
-    if (sps) text(ctx, sps, 72, last + 50, { weight: 900, size: 26, color: GREEN });
-    if (st.affiliation) text(ctx, st.affiliation, 72, last + 80, { weight: 300, size: 23, color: '#fff' });
+    const last = drawRich(ctx, R, fit, 70, 215, { align: 'left', color: on.fg });
+    if (sps) textFit(ctx, sps, 72, last + 50, 470, { weight: 900, size: 26, color: H });
+    if (st.affiliation) textFit(ctx, st.affiliation, 72, last + 80, 470, { weight: 300, size: 23, color: on.fg });
 
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, String(dp.d), 66, 665, { weight: 900, size: 88, color: '#fff' });
+      text(ctx, String(dp.d), 66, 665, { weight: 900, size: 88, color: on.fg });
       ctx.font = font(900, 88);
       const dx = 66 + ctx.measureText(String(dp.d)).width + 14;
-      text(ctx, `${dp.month} ${dp.y}`, dx, 622, { weight: 900, size: 24, color: '#fff' });
-      text(ctx, `${dp.weekday}, ${timeStr(st, true)}`, dx, 648, { size: 19, color: '#cfe0f5' });
-      textFit(ctx, placeOneLine(st), dx, 672, 500 - dx, { size: 16, color: '#cfe0f5' });
+      text(ctx, `${dp.month} ${dp.y}`, dx, 622, { weight: 900, size: 24, color: on.fg });
+      text(ctx, `${dp.weekday}, ${timeStr(st, true)}`, dx, 648, { size: 19, color: on.muted });
+      textFit(ctx, placeOneLine(st), dx, 672, 500 - dx, { size: 16, color: on.muted });
     }
     const q = qrs(st);
     if (q.length) {
       const w = q.length * 96 + 14;
-      roundRect(ctx, 1340 - w, 535, w, 150, 12, 'rgba(1,33,79,0.82)');
-      q.forEach((it, i) => qrTile(ctx, it, 1340 - w + 14 + i * 96, 549, 82, '#fff'));
+      const box = mix(P, '#000', 0.45);
+      roundRect(ctx, 1340 - w, 535, w, 150, 12, rgba(box, 0.85));
+      q.forEach((it, i) => qrTile(ctx, it, 1340 - w + 14 + i * 96, 549, 82, onColor(box).fg));
     }
   }
 
@@ -799,33 +909,9 @@
     blue: ['#011a40', '#8fd3ff'],
     mono: ['#141414', '#f2f2f2'],
     sunset: ['#2a0c4e', '#ff9a4a'],
+    forest: ['#0c2a1c', '#d8f5a2'],
+    berry: ['#3a0626', '#ffb3c7'],
   };
-  function hex(c) { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
-
-  function drawPhotoDuo(ctx, R, r) {
-    if (!R.img) { drawPhoto(ctx, R, r); return; }
-    const k = R.k;
-    const w = Math.max(1, Math.round(r.w * k));
-    const h = Math.max(1, Math.round(r.h * k));
-    const oc = document.createElement('canvas');
-    oc.width = w;
-    oc.height = h;
-    const o = oc.getContext('2d');
-    o.setTransform(k, 0, 0, k, -r.x * k, -r.y * k);
-    drawPhoto(o, R, r);
-    const [d, l] = (DUO[R.st.duo] || DUO.bluegreen).map(hex);
-    const id = o.getImageData(0, 0, w, h);
-    const p = id.data;
-    for (let i = 0; i < p.length; i += 4) {
-      let t = (0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2]) / 255;
-      t = t * t * (3 - 2 * t); // lekkie podbicie kontrastu
-      p[i] = d[0] + (l[0] - d[0]) * t;
-      p[i + 1] = d[1] + (l[1] - d[1]) * t;
-      p[i + 2] = d[2] + (l[2] - d[2]) * t;
-    }
-    o.putImageData(id, 0, 0);
-    ctx.drawImage(oc, r.x, r.y, r.w, r.h);
-  }
 
   function datePill(ctx, st, x, y, size, color, bg) {
     const dl = [dateStr(st), timeStr(st, true)].filter(Boolean).join('  ·  ');
@@ -837,19 +923,19 @@
     return w;
   }
 
-  function duoA4p(ctx, R) {
+  function duoPortrait(ctx, R) {
     const st = R.st;
-    const dark = (DUO[st.duo] || DUO.bluegreen)[0];
-    rect(ctx, 0, 0, 990, 1400, dark);
-    drawPhotoDuo(ctx, R, { x: 0, y: 0, w: 990, h: 1400 });
+    const D = st.duoDark, H = st.highlight;
+    rect(ctx, 0, 0, 990, 1400, D);
+    drawPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 1400 }, true);
     const g = ctx.createLinearGradient(0, 560, 0, 1150);
-    g.addColorStop(0, 'rgba(1,20,50,0)');
-    g.addColorStop(1, `rgba(1,20,50,${0.5 + st.shade * 0.5})`);
+    g.addColorStop(0, rgba(D, 0));
+    g.addColorStop(1, rgba(D, 0.5 + st.shade * 0.5));
     ctx.fillStyle = g;
     ctx.fillRect(0, 560, 990, 840);
     const gt = ctx.createLinearGradient(0, 0, 0, 260);
-    gt.addColorStop(0, 'rgba(1,20,50,0.55)');
-    gt.addColorStop(1, 'rgba(1,20,50,0)');
+    gt.addColorStop(0, rgba(D, 0.55));
+    gt.addColorStop(1, rgba(D, 0));
     ctx.fillStyle = gt;
     ctx.fillRect(0, 0, 990, 260);
 
@@ -862,11 +948,11 @@
     const firstBl = lastBl - (fit.lines.length - 1) * fit.lh;
     ctx.save();
     setShadow(ctx, R, true, 24);
-    text(ctx, sp.toLocaleUpperCase('pl-PL'), 72, firstBl - fit.size * 1.05, { weight: 900, size: 24, color: GREEN });
+    textFit(ctx, sp.toLocaleUpperCase('pl-PL'), 72, firstBl - fit.size * 1.05, 850, { weight: 900, size: 24, color: H });
     ctx.restore();
     drawRich(ctx, R, fit, 70, firstBl, { align: 'left', color: '#fff', shadow: true });
 
-    datePill(ctx, st, 70, 1150, 26, NAVY, GREEN);
+    datePill(ctx, st, 70, 1150, 26, inkOn(H), H);
     lines(ctx, placeLines(st), 72, 1268, 25, { weight: 400, size: 21, color: '#e6eef8' });
     const q = qrs(st);
     q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 94 + 14, 1222, 80, '#fff'));
@@ -874,19 +960,19 @@
 
   function duoBanner(ctx, R) {
     const st = R.st;
-    const dark = (DUO[st.duo] || DUO.bluegreen)[0];
-    rect(ctx, 0, 0, 1400, 735, dark);
-    drawPhotoDuo(ctx, R, { x: 0, y: 0, w: 1400, h: 735 });
+    const D = st.duoDark, H = st.highlight;
+    rect(ctx, 0, 0, 1400, 735, D);
+    drawPhoto(ctx, R, { x: 0, y: 0, w: 1400, h: 735 }, true);
     const g = ctx.createLinearGradient(0, 0, 1000, 0);
-    g.addColorStop(0, `rgba(1,20,50,${0.55 + st.shade * 0.45})`);
-    g.addColorStop(0.6, `rgba(1,20,50,${0.35 + st.shade * 0.4})`);
-    g.addColorStop(1, 'rgba(1,20,50,0)');
+    g.addColorStop(0, rgba(D, 0.55 + st.shade * 0.45));
+    g.addColorStop(0.6, rgba(D, 0.35 + st.shade * 0.4));
+    g.addColorStop(1, rgba(D, 0));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, 1400, 735);
 
     const gt = ctx.createLinearGradient(0, 0, 0, 200);
-    gt.addColorStop(0, 'rgba(1,20,50,0.6)');
-    gt.addColorStop(1, 'rgba(1,20,50,0)');
+    gt.addColorStop(0, rgba(D, 0.6));
+    gt.addColorStop(1, rgba(D, 0));
     ctx.fillStyle = gt;
     ctx.fillRect(0, 0, 1400, 200);
     drawLogo(ctx, 1106, 52, 90, 'neg');
@@ -894,11 +980,11 @@
     const sp = names(st) + (st.affiliation ? `  ·  ${st.affiliation}` : '');
     ctx.save();
     setShadow(ctx, R, true, 22);
-    text(ctx, sp.toLocaleUpperCase('pl-PL'), 72, 210, { weight: 900, size: 22, color: GREEN });
+    textFit(ctx, sp.toLocaleUpperCase('pl-PL'), 72, 210, 900, { weight: 900, size: 22, color: H });
     ctx.restore();
     const fit = fitTitleUntil(ctx, st, { top: 268, size: 54 * st.titleScale, minSize: 24, lh: 1.06, maxW: 700, weight: 900 }, 545, () => 0);
     drawRich(ctx, R, fit, 70, 268, { align: 'left', color: '#fff', shadow: true });
-    datePill(ctx, st, 70, 585, 23, NAVY, GREEN);
+    datePill(ctx, st, 70, 585, 23, inkOn(H), H);
     textFit(ctx, placeOneLine(st), 72, 676, 1000, { size: 19, color: '#e6eef8' });
     const q = qrs(st);
     q.forEach((it, i) => qrTile(ctx, it, 1340 - (q.length - i) * 94 + 14, 560, 80, '#fff'));
@@ -907,21 +993,22 @@
   // ---------- MINIMALNY ----------
   const PAPER = '#fbfbf7';
 
-  function minimalA4p(ctx, R) {
+  function minimalPortrait(ctx, R) {
     const st = R.st;
+    const P = st.primary, H = st.highlight, T = onPaper(P);
     rect(ctx, 0, 0, 990, 1400, PAPER);
-    rect(ctx, 60, 60, 340, 92, BLUE);
-    drawWordmark(ctx, R, 82, 122, 296, { greenIt: st.greenIt });
+    rect(ctx, 60, 60, 340, 92, P);
+    drawWordmark(ctx, R, 82, 122, 296, { greenIt: st.greenIt, color: onColor(P).fg });
     drawUmk(ctx, 692, 106, 0.85);
 
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, `${dp.dd}.${dp.mm}`, 60, 410, { weight: 900, size: 200, color: BLUE });
+      text(ctx, `${dp.dd}.${dp.mm}`, 60, 410, { weight: 900, size: 200, color: T });
       text(ctx, `${dp.weekday}, ${dp.d} ${dp.month} ${dp.y}`, 62, 466, { weight: 700, size: 28, color: '#111' });
       text(ctx, timeStr(st), 62, 500, { weight: 400, size: 26, color: '#444' });
     }
 
-    rect(ctx, 76, 538, 854, 430, GREEN);
+    rect(ctx, 76, 538, 854, 430, H);
     rect(ctx, 60, 522, 854, 430, st.bgColor);
     drawPhoto(ctx, R, { x: 60, y: 522, w: 854, h: 430 });
 
@@ -929,13 +1016,7 @@
     const fit = fitTitleUntil(ctx, st, { top: 1046, size: 58 * st.titleScale, minSize: 26, lh: 1.06, maxW: 870, weight: 900 }, 1196,
       () => (sps ? 50 : 0));
     const last = drawRich(ctx, R, fit, 60, 1046, { align: 'left', color: '#111' });
-    if (sps) {
-      text(ctx, sps, 62, last + 50, { weight: 900, size: 28, color: BLUE });
-      if (st.affiliation) {
-        ctx.font = font(900, 28);
-        text(ctx, '  —  ' + st.affiliation, 62 + ctx.measureText(sps).width, last + 50, { weight: 400, size: 26, color: '#555' });
-      }
-    }
+    speakerLine(ctx, st, 62, last + 50, { size: 28, color: T, affColor: '#555', affWeight: 400, sep: '  —  ', maxW: 870 });
 
     rect(ctx, 60, 1226, 870, 3, '#111');
     const pl = placeLines(st);
@@ -947,17 +1028,18 @@
 
   function minimalBanner(ctx, R) {
     const st = R.st;
+    const P = st.primary, H = st.highlight, T = onPaper(P);
     rect(ctx, 0, 0, 1400, 735, PAPER);
-    rect(ctx, 936, 66, 388, 600, GREEN);
+    rect(ctx, 936, 66, 388, 600, H);
     rect(ctx, 920, 50, 388, 600, st.bgColor);
     drawPhoto(ctx, R, { x: 920, y: 50, w: 388, h: 600 });
 
-    rect(ctx, 60, 58, 280, 76, BLUE);
-    drawWordmark(ctx, R, 78, 110, 244, { greenIt: st.greenIt });
+    rect(ctx, 60, 58, 280, 76, P);
+    drawWordmark(ctx, R, 78, 110, 244, { greenIt: st.greenIt, color: onColor(P).fg });
     drawLogo(ctx, 384, 50, 90);
     const dp = dateParts(st);
     if (dp) {
-      text(ctx, `${dp.dd}.${dp.mm}`, 60, 275, { weight: 900, size: 128, color: BLUE });
+      text(ctx, `${dp.dd}.${dp.mm}`, 60, 275, { weight: 900, size: 128, color: T });
       ctx.font = font(900, 128);
       const dx = 60 + ctx.measureText(`${dp.dd}.${dp.mm}`).width + 26;
       text(ctx, `${dp.weekday}, ${dp.d} ${dp.month} ${dp.y}`, dx, 232, { weight: 700, size: 24, color: '#111' });
@@ -967,7 +1049,7 @@
     const fit = fitTitleUntil(ctx, st, { top: 360, size: 46 * st.titleScale, minSize: 22, lh: 1.08, maxW: 800, weight: 900 }, 560,
       () => (sps ? 44 : 0));
     const last = drawRich(ctx, R, fit, 60, 360, { align: 'left', color: '#111' });
-    if (sps) text(ctx, sps + (st.affiliation ? `  —  ${st.affiliation}` : ''), 62, last + 44, { weight: 900, size: 24, color: BLUE });
+    if (sps) textFit(ctx, sps + (st.affiliation ? `  —  ${st.affiliation}` : ''), 62, last + 44, 800, { weight: 900, size: 24, color: T });
 
     rect(ctx, 60, 590, 820, 3, '#111');
     textFit(ctx, placeOneLine(st), 60, 630, 680, { size: 18, color: '#333' });
@@ -975,13 +1057,385 @@
     q.forEach((it, i) => qrTile(ctx, it, 880 - (q.length - i) * 66 + 12, 604, 54, '#333'));
   }
 
+  // ---------- KOŁO (zdjęcie w kole, data na plakietce) ----------
+  function photoCircle(ctx, R, cx, cy, r) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    rect(ctx, cx - r, cy - r, 2 * r, 2 * r, R.st.bgColor);
+    drawPhoto(ctx, R, { x: cx - r, y: cy - r, w: 2 * r, h: 2 * r });
+    ctx.restore();
+  }
+
+  function ring(ctx, cx, cy, r, a0, a1, width, color) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, a0, a1);
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = color;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Okrągła plakietka: dzień tygodnia / duży dzień / miesiąc i rok. */
+  function dateBadge(ctx, st, cx, cy, r, bg) {
+    const dp = dateParts(st);
+    if (!dp) return;
+    const c = inkOn(bg);
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = bg;
+    ctx.fill();
+    text(ctx, dp.weekday, cx, cy - r * 0.42, { weight: 700, size: r * 0.17, color: c, align: 'center' });
+    text(ctx, String(dp.d), cx, cy + r * 0.3, { weight: 900, size: r * 0.9, color: c, align: 'center' });
+    textFit(ctx, `${dp.month} ${dp.y}`, cx, cy + r * 0.6, r * 1.45, { weight: 700, size: r * 0.19, color: c, align: 'center' });
+  }
+
+  function circlePortrait(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 990, 1400, P);
+    ring(ctx, 600, 520, 440, -2.6, 0.9, 14, H);
+    photoCircle(ctx, R, 600, 520, 400);
+    dateBadge(ctx, st, 205, 800, 150, H);
+    drawLogo(ctx, 60, 60, 90, on.logo);
+
+    const fit = fitTitleUntil(ctx, st, { top: 1035, size: 62 * st.titleScale, minSize: 28, lh: 1.05, maxW: 850, weight: 900 }, 1180,
+      () => (names(st) ? 52 : 0));
+    const last = drawRich(ctx, R, fit, 70, 1035, { align: 'left', color: on.fg });
+    speakerLine(ctx, st, 72, last + 52, { size: 28, color: H, affColor: on.fg, maxW: 850 });
+
+    rect(ctx, 70, 1236, 850, 2, on.line);
+    drawWordmark(ctx, R, 70, 1306, 250, { greenIt: st.greenIt, tagline: true, color: on.fg, taglineColor: on.muted });
+    text(ctx, timeStr(st, true), 372, 1284, { weight: 900, size: 22, color: on.fg });
+    lines(ctx, placeLines(st), 372, 1314, 24, { size: 19, color: on.muted });
+    const q = qrs(st);
+    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 92 + 12, 1262, 78, on.fg));
+  }
+
+  function circleBanner(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 1400, 735, P);
+    ring(ctx, 1060, 368, 362, -2.5, 1.0, 12, H);
+    photoCircle(ctx, R, 1060, 368, 330);
+    dateBadge(ctx, st, 770, 590, 108, H);
+    drawLogo(ctx, 60, 50, 76, on.logo);
+    drawWordmark(ctx, R, 320, 100, 230, { greenIt: st.greenIt, color: on.fg });
+
+    const fit = fitTitleUntil(ctx, st, { top: 238, size: 50 * st.titleScale, minSize: 24, lh: 1.07, maxW: 580, weight: 900 }, 505,
+      () => (names(st) ? 46 : 0));
+    const last = drawRich(ctx, R, fit, 60, 238, { align: 'left', color: on.fg });
+    speakerLine(ctx, st, 62, last + 46, { size: 25, color: H, affColor: on.fg, maxW: 580 });
+
+    const q = qrs(st);
+    const qx = 640 - q.length * 84;
+    text(ctx, timeStr(st, true), 62, 594, { weight: 900, size: 23, color: on.fg });
+    textFit(ctx, placeOneLine(st), 62, 626, qx - 82, { size: 19, color: on.muted });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 84, 548, 66, on.fg));
+  }
+
+  // ---------- TYPOGRAFICZNY (wielki tytuł, siatka) ----------
+  function swissPortrait(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, T = onPaper(P);
+    rect(ctx, 0, 0, 990, 1400, PAPER);
+    drawLogo(ctx, 60, 54, 84);
+    drawWordmark(ctx, R, 650, 116, 280, { greenIt: st.greenIt, color: T });
+    rect(ctx, 60, 176, 870, 3, '#111');
+
+    const fit = fitTitleUntil(ctx, st, { top: 312, size: 112 * st.titleScale, minSize: 36, lh: 0.98, maxW: 870, weight: 900 }, 700,
+      () => (names(st) ? 66 : 0) + (st.affiliation ? 40 : 0));
+    const last = drawRich(ctx, R, fit, 56, 312, { align: 'left', color: '#111' });
+    if (names(st)) textFit(ctx, names(st), 60, last + 66, 870, { weight: 900, size: 36, color: T });
+    if (st.affiliation) textFit(ctx, st.affiliation, 60, last + (names(st) ? 106 : 66), 870, { weight: 400, size: 30, color: '#444' });
+
+    rect(ctx, 495, 790, 495, 610, st.bgColor);
+    drawPhoto(ctx, R, { x: 495, y: 790, w: 495, h: 610 });
+    rect(ctx, 455, 750, 80, 80, H);
+
+    rect(ctx, 60, 790, 380, 3, '#111');
+    const dp = dateParts(st);
+    if (dp) {
+      textFit(ctx, `${dp.dd}.${dp.mm}`, 52, 968, 390, { weight: 900, size: 150, color: T });
+      textFit(ctx, `${dp.weekday}, ${dp.d} ${dp.month} ${dp.y}`, 60, 1024, 390, { weight: 700, size: 24, color: '#111' });
+    }
+    textFit(ctx, timeStr(st), 60, 1058, 390, { size: 24, color: '#444' });
+    lines(ctx, placeLines(st), 60, 1112, 26, { size: 21, color: '#333' });
+    qrs(st).forEach((it, i) => qrTile(ctx, it, 60 + i * 104, 1236, 80, '#333'));
+  }
+
+  function swissBanner(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, T = onPaper(P);
+    rect(ctx, 0, 0, 1400, 735, PAPER);
+    rect(ctx, 990, 0, 410, 735, st.bgColor);
+    drawPhoto(ctx, R, { x: 990, y: 0, w: 410, h: 735 });
+    rect(ctx, 952, 40, 76, 76, H);
+
+    drawLogo(ctx, 60, 44, 70);
+    drawWordmark(ctx, R, 660, 96, 240, { greenIt: st.greenIt, color: T });
+    rect(ctx, 60, 140, 870, 3, '#111');
+
+    const fit = fitTitleUntil(ctx, st, { top: 248, size: 72 * st.titleScale, minSize: 28, lh: 1.0, maxW: 860, weight: 900 }, 505,
+      () => (names(st) ? 48 : 0));
+    const last = drawRich(ctx, R, fit, 57, 248, { align: 'left', color: '#111' });
+    speakerLine(ctx, st, 60, last + 48, { size: 28, color: T, affColor: '#444', affWeight: 400, sep: '  —  ', maxW: 860 });
+
+    rect(ctx, 60, 540, 870, 3, '#111');
+    const q = qrs(st);
+    const qx = 930 - q.length * 80;
+    let dx = 60;
+    const dp = dateParts(st);
+    if (dp) {
+      text(ctx, `${dp.dd}.${dp.mm}`, 55, 660, { weight: 900, size: 92, color: T });
+      ctx.font = font(900, 92);
+      dx = 55 + ctx.measureText(`${dp.dd}.${dp.mm}`).width + 24;
+      textFit(ctx, `${dp.weekday}, ${dp.d} ${dp.month} ${dp.y}`, dx, 598, qx - dx - 10, { weight: 700, size: 23, color: '#111' });
+    }
+    textFit(ctx, timeStr(st), dx, 630, qx - dx - 10, { size: 21, color: '#444' });
+    textFit(ctx, placeOneLine(st), dx, 660, qx - dx - 10, { size: 18, color: '#333' });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 16 + i * 80, 566, 64, '#333'));
+  }
+
+  // ---------- RAMKA (zdjęcie w ramie, biała karta z treścią) ----------
+  function card(ctx, R, x, y, w, h, bar) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.3)';
+    ctx.shadowBlur = 40 * R.k;
+    ctx.shadowOffsetY = 10 * R.k;
+    rect(ctx, x, y, w, h, '#fff');
+    ctx.restore();
+    rect(ctx, x, y, w, 12, bar);
+  }
+
+  function framePortrait(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 990, 1400, P);
+    rect(ctx, 40, 40, 910, 1030, st.bgColor);
+    drawPhoto(ctx, R, { x: 40, y: 40, w: 910, h: 1030 });
+    rect(ctx, 40, 40, 320, 140, '#fff');
+    drawLogo(ctx, 72, 66, 88);
+    rect(ctx, 610, 40, 340, 124, P);
+    drawWordmark(ctx, R, 642, 120, 280, { greenIt: st.greenIt, color: on.fg });
+
+    card(ctx, R, 90, 890, 810, 440, H);
+    const fit = fitTitleUntil(ctx, st, { top: 975, size: 54 * st.titleScale, minSize: 26, lh: 1.06, maxW: 720, weight: 900 }, 1152,
+      () => (names(st) ? 46 : 0));
+    const last = drawRich(ctx, R, fit, 135, 975, { align: 'left', color: '#111' });
+    speakerLine(ctx, st, 136, last + 46, { size: 26, color: onPaper(P), affColor: '#555', affWeight: 400, maxW: 720 });
+
+    rect(ctx, 135, 1196, 720, 2, '#e3e3e3');
+    const q = qrs(st);
+    const qx = 855 - q.length * 80;
+    textFit(ctx, dateStr(st), 135, 1240, 310, { weight: 900, size: 24, color: '#111' });
+    textFit(ctx, timeStr(st), 135, 1270, 310, { size: 22, color: '#444' });
+    placeLines(st).forEach((s, i) => textFit(ctx, s, 465, 1236 + i * 24, qx - 475, { size: 19, color: '#444' }));
+    q.forEach((it, i) => qrTile(ctx, it, qx + 16 + i * 80, 1222, 64, '#333'));
+
+    text(ctx, 'MATEMATYKA  ·  ANALIZA DANYCH  ·  INFORMATYKA', 495, 1373, { weight: 700, size: 17, color: on.muted, align: 'center' });
+  }
+
+  function frameBanner(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 1400, 735, P);
+    rect(ctx, 30, 30, 1340, 675, st.bgColor);
+    drawPhoto(ctx, R, { x: 30, y: 30, w: 1340, h: 675 });
+    rect(ctx, 1030, 30, 340, 112, P);
+    drawWordmark(ctx, R, 1062, 104, 276, { greenIt: st.greenIt, color: on.fg });
+
+    card(ctx, R, 60, 60, 640, 615, H);
+    drawLogo(ctx, 96, 100, 70);
+    const fit = fitTitleUntil(ctx, st, { top: 262, size: 44 * st.titleScale, minSize: 22, lh: 1.08, maxW: 568, weight: 900 }, 472,
+      () => (names(st) ? 42 : 0));
+    const last = drawRich(ctx, R, fit, 96, 262, { align: 'left', color: '#111' });
+    speakerLine(ctx, st, 97, last + 42, { size: 23, color: onPaper(P), affColor: '#555', affWeight: 400, maxW: 568 });
+
+    rect(ctx, 96, 512, 568, 2, '#e3e3e3');
+    const q = qrs(st);
+    const qx = 664 - q.length * 76;
+    textFit(ctx, dateStr(st), 96, 552, qx - 106, { weight: 900, size: 22, color: '#111' });
+    textFit(ctx, timeStr(st), 96, 580, qx - 106, { size: 20, color: '#444' });
+    textFit(ctx, placeOneLine(st), 96, 608, qx - 106, { size: 17, color: '#444' });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 76, 530, 62, '#333'));
+  }
+
+  // ---------- POLAROID (przekrzywione zdjęcie z taśmą) ----------
+  function stripes(ctx, w, h, color) {
+    ctx.save();
+    ctx.fillStyle = color;
+    for (let x = -h; x < w; x += 120) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + 50, 0);
+      ctx.lineTo(x + 50 + h, h);
+      ctx.lineTo(x + h, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** Odbitka w×h o środku (cx, cy), obrócona o angle; pod zdjęciem podpis z prelegentami. */
+  function polaroid(ctx, R, cx, cy, w, h, pad, capH, angle, tapeColor) {
+    const st = R.st;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 36 * R.k;
+    ctx.shadowOffsetY = 14 * R.k;
+    rect(ctx, -w / 2, -h / 2, w, h, '#fbfaf6');
+    ctx.restore();
+    const ph = { x: -w / 2 + pad, y: -h / 2 + pad, w: w - 2 * pad, h: h - pad - capH };
+    rect(ctx, ph.x, ph.y, ph.w, ph.h, st.bgColor);
+    drawPhoto(ctx, R, ph);
+    R.photoRect = { x: cx + ph.x, y: cy + ph.y, w: ph.w, h: ph.h }; // przybliżenie dla zoomu kółkiem
+    const cap = ph.y + ph.h;
+    const s = capH / 120;
+    const aff = st.affiliation;
+    textFit(ctx, names(st), 0, cap + capH * (aff ? 0.46 : 0.58), ph.w, { weight: 900, size: 34 * s, italic: true, color: '#1d1d1d', align: 'center' });
+    if (aff) textFit(ctx, aff, 0, cap + capH * 0.76, ph.w, { size: 21 * s, color: '#666', align: 'center' });
+    ctx.rotate(0.07);
+    ctx.globalAlpha = 0.85;
+    rect(ctx, -w * 0.12, -h / 2 - 24 * s, w * 0.24, 46 * s, tapeColor);
+    ctx.restore();
+  }
+
+  function polaroidPortrait(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 990, 1400, P);
+    stripes(ctx, 990, 1400, on.tex);
+    drawLogo(ctx, 60, 56, 84, on.logo);
+    drawWordmark(ctx, R, 650, 118, 280, { greenIt: st.greenIt, color: on.fg });
+    polaroid(ctx, R, 495, 620, 700, 790, 30, 120, -0.06, H);
+
+    const fit = fitTitleUntil(ctx, st, { top: 1122, size: 58 * st.titleScale, minSize: 26, lh: 1.05, maxW: 850, weight: 900 }, 1240, () => 0);
+    drawRich(ctx, R, fit, 70, 1122, { align: 'left', color: on.fg });
+
+    rect(ctx, 70, 1268, 850, 2, on.line);
+    const q = qrs(st);
+    const qx = 920 - q.length * 90;
+    const dp = dateParts(st);
+    textFit(ctx, dp ? `${dp.weekday}, ${dateStr(st)}` : '', 70, 1310, qx - 90, { weight: 900, size: 26, color: on.fg });
+    textFit(ctx, timeStr(st), 70, 1342, qx - 90, { size: 22, color: on.muted });
+    textFit(ctx, placeOneLine(st), 70, 1372, qx - 90, { size: 19, color: on.muted });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 18 + i * 90, 1286, 68, on.fg));
+  }
+
+  function polaroidBanner(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 1400, 735, P);
+    stripes(ctx, 1400, 735, on.tex);
+    polaroid(ctx, R, 1060, 372, 430, 560, 22, 92, 0.05, H);
+    drawLogo(ctx, 60, 50, 74, on.logo);
+    drawWordmark(ctx, R, 320, 100, 230, { greenIt: st.greenIt, color: on.fg });
+
+    const fit = fitTitleUntil(ctx, st, { top: 240, size: 52 * st.titleScale, minSize: 24, lh: 1.07, maxW: 700, weight: 900 }, 485, () => 0);
+    drawRich(ctx, R, fit, 60, 240, { align: 'left', color: on.fg });
+
+    rect(ctx, 60, 518, 730, 2, on.line);
+    const q = qrs(st);
+    const qx = 790 - q.length * 82;
+    textFit(ctx, dateStr(st), 60, 564, qx - 80, { weight: 900, size: 24, color: on.fg });
+    textFit(ctx, timeStr(st), 60, 596, qx - 80, { size: 22, color: on.muted });
+    textFit(ctx, placeOneLine(st), 60, 628, qx - 80, { size: 18, color: on.muted });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 16 + i * 82, 542, 66, on.fg));
+  }
+
+  // ---------- GRADIENT (zdjęcie barwione gradientem, półprzezroczysta karta) ----------
+  /** Zdjęcie w r zabarwione gradientem primary → highlight (tryb „color”, siła = st.tint). */
+  function tintedPhoto(ctx, R, r) {
+    const st = R.st;
+    rect(ctx, r.x, r.y, r.w, r.h, st.bgColor);
+    drawPhoto(ctx, R, r);
+    if (st.tint <= 0) return;
+    ctx.save();
+    const g = ctx.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
+    g.addColorStop(0, st.primary);
+    g.addColorStop(1, st.highlight);
+    ctx.globalCompositeOperation = 'color';
+    ctx.globalAlpha = st.tint;
+    ctx.fillStyle = g;
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    ctx.restore();
+  }
+
+  function glassCard(ctx, x, y, w, h, r, st) {
+    roundRect(ctx, x, y, w, h, r, rgba(mix(st.primary, '#000', 0.6), 0.3 + st.shade * 0.65));
+    ctx.save();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.stroke(); // ścieżka z roundRect
+    ctx.restore();
+  }
+
+  function gradientPortrait(ctx, R) {
+    const st = R.st;
+    const H = st.highlight;
+    tintedPhoto(ctx, R, { x: 0, y: 0, w: 990, h: 1400 });
+    shadeV(ctx, 0, 0, 990, 260, 0.5, 260, 0);
+    drawLogo(ctx, 60, 60, 92, 'neg');
+    drawWordmark(ctx, R, 610, 122, 320, { greenIt: st.greenIt });
+
+    glassCard(ctx, 60, 950, 870, 410, 28, st);
+    const sp = names(st) + (st.affiliation ? `  ·  ${st.affiliation}` : '');
+    textFit(ctx, sp.toLocaleUpperCase('pl-PL'), 102, 1012, 786, { weight: 900, size: 24, color: H });
+    const fit = fitTitleUntil(ctx, st, { top: 1080, size: 56 * st.titleScale, minSize: 26, lh: 1.05, maxW: 786, weight: 900 }, 1222, () => 0);
+    drawRich(ctx, R, fit, 100, 1080, { align: 'left', color: '#fff' });
+
+    rect(ctx, 102, 1250, 786, 2, 'rgba(255,255,255,0.25)');
+    const q = qrs(st);
+    const qx = 890 - q.length * 76;
+    textFit(ctx, dateStr(st), 102, 1292, 300, { weight: 900, size: 23, color: '#fff' });
+    textFit(ctx, timeStr(st), 102, 1320, 300, { size: 21, color: '#e8eef8' });
+    placeLines(st).forEach((s, i) => textFit(ctx, s, 420, 1290 + i * 23, qx - 426, { size: 18, color: '#e8eef8' }));
+    q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 76, 1264, 60, '#fff'));
+  }
+
+  function gradientBanner(ctx, R) {
+    const st = R.st;
+    const H = st.highlight;
+    tintedPhoto(ctx, R, { x: 0, y: 0, w: 1400, h: 735 });
+    shadeV(ctx, 760, 0, 640, 180, 0.5, 180, 0);
+    drawLogo(ctx, 1120, 46, 84, 'neg');
+
+    glassCard(ctx, 50, 50, 700, 635, 26, st);
+    drawWordmark(ctx, R, 90, 126, 260, { greenIt: st.greenIt, tagline: true, taglineColor: '#e8eef8' });
+    const sp = names(st) + (st.affiliation ? `  ·  ${st.affiliation}` : '');
+    textFit(ctx, sp.toLocaleUpperCase('pl-PL'), 92, 228, 620, { weight: 900, size: 22, color: H });
+    const fit = fitTitleUntil(ctx, st, { top: 288, size: 48 * st.titleScale, minSize: 22, lh: 1.07, maxW: 620, weight: 900 }, 472, () => 0);
+    drawRich(ctx, R, fit, 90, 288, { align: 'left', color: '#fff' });
+
+    rect(ctx, 92, 508, 620, 2, 'rgba(255,255,255,0.25)');
+    const q = qrs(st);
+    const qx = 712 - q.length * 78;
+    textFit(ctx, dateStr(st), 92, 550, qx - 100, { weight: 900, size: 22, color: '#fff' });
+    textFit(ctx, timeStr(st), 92, 578, qx - 100, { size: 20, color: '#e8eef8' });
+    textFit(ctx, placeOneLine(st), 92, 608, qx - 100, { size: 17, color: '#e8eef8' });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 78, 528, 64, '#fff'));
+  }
+
+  // Kontrolki wyglądu używane przez szablon (app.js pokazuje tylko te).
   const TEMPLATES = {
-    classic: { label: 'Klasyczny', group: 'orig', formats: { a4p: classicA4p, a4l: classicA4l, banner: classicBanner } },
-    dark: { label: 'Ciemny', group: 'orig', formats: { a4p: darkA4p, banner: darkBanner } },
-    block: { label: 'Blokowy', group: 'orig', formats: { a4p: blockA4p, banner: blockBanner } },
-    modern: { label: 'Nowoczesny', group: 'new', formats: { a4p: modernA4p, banner: modernBanner } },
-    duo: { label: 'Duotone', group: 'new', formats: { a4p: duoA4p, banner: duoBanner } },
-    minimal: { label: 'Minimalny', group: 'new', formats: { a4p: minimalA4p, banner: minimalBanner } },
+    classic: { label: 'Klasyczny', group: 'orig', uses: ['accent', 'band', 'titleColor'], formats: { portrait: classicPortrait, landscape: classicLandscape, banner: classicBanner } },
+    dark: { label: 'Ciemny', group: 'orig', uses: ['shade', 'shadeColor'], formats: { portrait: darkPortrait, banner: darkBanner } },
+    block: { label: 'Blokowy', group: 'orig', uses: ['band', 'titleColor'], formats: { portrait: blockPortrait, banner: blockBanner } },
+    modern: { label: 'Nowoczesny', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: modernPortrait, banner: modernBanner } },
+    duo: { label: 'Duotone', group: 'new', uses: ['duo', 'highlight', 'shade'], formats: { portrait: duoPortrait, banner: duoBanner } },
+    minimal: { label: 'Minimalny', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: minimalPortrait, banner: minimalBanner } },
+    circle: { label: 'Koło', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: circlePortrait, banner: circleBanner } },
+    swiss: { label: 'Typograficzny', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: swissPortrait, banner: swissBanner } },
+    frame: { label: 'Ramka', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: framePortrait, banner: frameBanner } },
+    polaroid: { label: 'Polaroid', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: polaroidPortrait, banner: polaroidBanner } },
+    gradient: { label: 'Gradient', group: 'new', uses: ['primary', 'highlight', 'tint', 'shade'], formats: { portrait: gradientPortrait, banner: gradientBanner } },
   };
 
   /**
@@ -1005,7 +1459,7 @@
     return R;
   }
 
-  window.Poster = { render, loadLogos, FORMATS, TEMPLATES, MONTHS, DUO, fontsToLoad: [
+  window.Poster = { render, loadLogos, FORMATS, PAPERS, formatSize, TEMPLATES, MONTHS, DUO, fontsToLoad: [
     font(300, 20), font(400, 20), font(700, 20), font(900, 20), font(700, 20, null, true), font(900, 20, null, true),
   ] };
 })();

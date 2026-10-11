@@ -21,7 +21,7 @@ i otwórz http://localhost:8000.
 |---|---|
 | `index.html`, `style.css` | interfejs |
 | `app.js` | formularz, podgląd, kadrowanie zdjęcia, eksport PNG/JPG/PDF, zapis projektu |
-| `render.js` | renderer szablonów (współrzędne projektowe: A4 990×1400, baner 1400×735) |
+| `render.js` | renderer szablonów (współrzędne projektowe: pion 990×1400 – wspólne dla A3 i A4, baner 1400×735) |
 | `fonts.css`, `fonts/` | Lato hostowane lokalnie (z polskimi znakami) |
 | `vendor/` | `qrcode-generator` (kody QR), `jsPDF` (eksport PDF) |
 | `assets/` | oficjalne logo WMiI (pakiet PL): `wmii-poziom-podstawowe.png` na jasne tło, `wmii-poziom-negatyw.png` na ciemne |
@@ -29,15 +29,19 @@ i otwórz http://localhost:8000.
 ## Szablony
 
 - **Klasyczny / Ciemny / Blokowy** – odwzorowanie dotychczasowych plakatów z `ori/`.
-- **Nowoczesny / Duotone / Minimalny** – nowe propozycje.
+- **Nowoczesny / Duotone / Minimalny / Koło / Typograficzny / Ramka / Polaroid / Gradient** – nowe propozycje.
 
-Nowy szablon dodaje się jako funkcję `(ctx, R)` w `render.js` i wpis w obiekcie `TEMPLATES`.
+Nowe szablony mają regulowany *kolor główny* i *kolor wyróżnienia*; Duotone ma własne kolory cieni i świateł,
+Gradient – siłę zabarwienia zdjęcia, Ciemny – kolor przyciemnienia. Zdjęcie można skorygować (jasność, kontrast, nasycenie).
+
+Nowy szablon dodaje się jako funkcję `(ctx, R)` w `render.js` i wpis w obiekcie `TEMPLATES`
+(`uses` – lista kontrolek wyglądu, które panel ma pokazać dla tego szablonu).
 
 ## Eksport
 
-- A4: 2481×3508 px (300 dpi), opcja 2× = 600 dpi; PDF w formacie A4.
+- A3 (domyślnie): 3508×4961 px (300 dpi), A4: 2481×3508 px; opcja 2× = 600 dpi; PDF w wybranym formacie.
 - Baner: 1200×630 px (np. Facebook / wydarzenia), opcja 2×.
-- Nazwy plików jak w archiwum: `DDMMRR` + `P` (plakat), `L` (A4 poziom), `Z` (baner).
+- Nazwy plików jak w archiwum: `DDMMRR` + `P` (plakat), `L` (poziom), `Z` (baner).
 
 Projekt (tekst, kadry i zdjęcie) zapisuje się automatycznie w przeglądarce. Można go też zapisać i wczytać jako plik JSON.
 # meetit

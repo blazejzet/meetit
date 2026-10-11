@@ -2,12 +2,13 @@
 (function () {
   'use strict';
 
-  const { render, FORMATS, TEMPLATES } = window.Poster;
+  const { render, FORMATS, PAPERS, formatSize, TEMPLATES, DUO } = window.Poster;
   const $ = (id) => document.getElementById(id);
 
   const DEFAULTS = {
     template: 'classic',
-    format: 'a4p',
+    format: 'portrait',
+    paper: 'a3',
     title: 'Jak AI korzysta\nz wiedzy, którą\njej dostarczasz?',
     titleUpper: false,
     speakers: 'Imię Nazwisko',
@@ -21,11 +22,20 @@
     band: true,
     bandOpacity: 0.6,
     shade: 0.45,
+    shadeColor: '#141414',
     titleColor: 'auto',
     titleScale: 1,
     greenIt: true,
     showQr: true,
     duo: 'bluegreen',
+    duoDark: '#011a40',
+    duoLight: '#c8f07a',
+    primary: '#024ca1',
+    highlight: '#aad337',
+    tint: 0.85,
+    brightness: 0,
+    contrast: 0,
+    saturation: 0,
     qr1: { label: 'Więcej:', text: 'meetit.live', url: 'https://meetit.live' },
     qr2: { label: 'Zapisy:', text: 'evenea.pl', url: 'https://evenea.pl' },
     framing: {},
@@ -38,6 +48,17 @@
   const BGS = [
     ['#e9edf2', 'jasnoszary'], ['#ffffff', 'biały'], ['#ff4f00', 'pomarańczowy'],
     ['#0d1b2a', 'granatowy'], ['#2b2b2b', 'grafitowy'],
+  ];
+  const PRIMARIES = [
+    ['#024ca1', 'granat WMiI'], ['#0b3fe6', 'niebieski'], ['#01214f', 'ciemny granat'], ['#1c1c1c', 'grafit'],
+    ['#5b2bd1', 'fiolet'], ['#b0174f', 'malinowy'], ['#00695c', 'morski'], ['#ff4f00', 'pomarańczowy'],
+  ];
+  const HIGHLIGHTS = [
+    ['#aad337', 'limonkowy'], ['#ffcc00', 'żółty'], ['#48c4e6', 'turkusowy'], ['#ff7c44', 'pomarańczowy'],
+    ['#ff6b9a', 'różowy'], ['#ffffff', 'biały'],
+  ];
+  const SHADES = [
+    ['#141414', 'grafitowy'], ['#000000', 'czarny'], ['#01214f', 'granatowy'], ['#2a0c4e', 'fioletowy'], ['#0c2a1c', 'butelkowa zieleń'],
   ];
 
   const LS_KEY = 'meetit-gen:v1';
@@ -94,10 +115,26 @@
     idb.set('photo', photoURL).catch(() => {});
   }
 
+  /** Stan z domyślnymi wartościami; zgodność ze starszymi projektami (formaty a4p/a4l, duotone z presetu). */
+  function loadState(s) {
+    const ren = { a4p: 'portrait', a4l: 'landscape' };
+    if (ren[s.format]) s.format = ren[s.format];
+    Object.keys(s.framing || {}).forEach((key) => {
+      const [t, f] = key.split(':');
+      if (ren[f]) { s.framing[`${t}:${ren[f]}`] = s.framing[key]; delete s.framing[key]; }
+    });
+    if (!s.duoDark && DUO[s.duo]) [s.duoDark, s.duoLight] = DUO[s.duo];
+    const out = Object.assign(clone(DEFAULTS), s);
+    if (!TEMPLATES[out.template]) out.template = DEFAULTS.template;
+    if (!TEMPLATES[out.template].formats[out.format]) out.format = 'portrait';
+    if (!PAPERS[out.paper]) out.paper = DEFAULTS.paper;
+    return out;
+  }
+
   function restoreState() {
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (raw) st = Object.assign(clone(DEFAULTS), JSON.parse(raw));
+      if (raw) st = loadState(JSON.parse(raw));
     } catch (e) { /* ignoruj */ }
   }
 
@@ -238,19 +275,19 @@
     lastR = render(cv, st, { format: st.format, img, framing: framingFor(st.format), scale: (cssW / dw) * dpr, preview: true });
     cv.style.width = cssW + 'px';
     cv.style.height = cssH + 'px';
-    const f = FORMATS[st.format];
+    const f = formatSize(st.format, st.paper);
     $('meta').textContent = `${TEMPLATES[st.template].label} · ${f.label} · ${f.px[0]}×${f.px[1]} px` +
-      (st.format !== 'banner' ? ' (300 dpi)' : '') + ` · plik: ${fileBase(st.format)}`;
+      (f.mm ? ' (300 dpi)' : '') + ` · plik: ${fileBase(st.format)}`;
     $('zoom').value = framingFor(st.format).zoom;
     $('zoomOut').textContent = Math.round(framingFor(st.format).zoom * 100) + '%';
   }
 
   // ---------------------------------------------------------------- export
   function renderExport(format) {
-    const fmt = FORMATS[format];
     const q = Number($('quality').value) || 1;
     const c = document.createElement('canvas');
-    render(c, st, { format, img, framing: clone(framingFor(format)), scale: (fmt.px[0] / fmt.design[0]) * q });
+    const scale = (formatSize(format, st.paper).px[0] / FORMATS[format].design[0]) * q;
+    render(c, st, { format, img, framing: clone(framingFor(format)), scale });
     return c;
   }
 
@@ -269,13 +306,11 @@
       const JsPDF = window.jspdf && window.jspdf.jsPDF;
       if (!JsPDF) { toast('Biblioteka PDF jeszcze się ładuje – spróbuj za chwilę'); return; }
       const data = c.toDataURL('image/jpeg', 0.95);
+      const { mm } = formatSize(format, st.paper);
       let doc;
-      if (format === 'a4p') {
-        doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-        doc.addImage(data, 'JPEG', 0, 0, 210, 297);
-      } else if (format === 'a4l') {
-        doc = new JsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-        doc.addImage(data, 'JPEG', 0, 0, 297, 210);
+      if (mm) {
+        doc = new JsPDF({ orientation: mm[0] > mm[1] ? 'landscape' : 'portrait', unit: 'mm', format: st.paper });
+        doc.addImage(data, 'JPEG', 0, 0, mm[0], mm[1]);
       } else {
         const [w, h] = FORMATS[format].px;
         doc = new JsPDF({ orientation: 'landscape', unit: 'pt', format: [w, h] });
@@ -296,13 +331,20 @@
   }
 
   // ---------------------------------------------------------------- bindings
-  const TEXT_FIELDS = ['title', 'speakers', 'affiliation', 'date', 'time', 'room', 'place', 'titleColor', 'duo'];
+  const TEXT_FIELDS = ['title', 'speakers', 'affiliation', 'date', 'time', 'room', 'place', 'titleColor'];
   const CHECKS = ['titleUpper', 'band', 'greenIt', 'showQr'];
+  const pct = (v) => Math.round(v * 100) + '%';
+  const signed = (v) => (v > 0 ? '+' : '') + v;
   const RANGES = [
-    ['bandOpacity', (v) => Math.round(v * 100) + '%'],
-    ['shade', (v) => Math.round(v * 100) + '%'],
-    ['titleScale', (v) => Math.round(v * 100) + '%'],
+    ['bandOpacity', pct], ['shade', pct], ['tint', pct], ['titleScale', pct],
+    ['brightness', signed], ['contrast', signed], ['saturation', signed],
   ];
+  const FX = ['brightness', 'contrast', 'saturation'];
+  // kontrolka wyglądu (TEMPLATES[...].uses) → element formularza, który ją zawiera
+  const LOOK_FIELDS = {
+    primary: 'primaryField', highlight: 'highlightField', accent: 'accentField', duo: 'duoField', tint: 'tintField',
+    shade: 'shadeField', shadeColor: 'shadeColorField', band: 'bandField', titleColor: 'titleColorField',
+  };
   const QR_FIELDS = ['label', 'text', 'url'];
 
   function syncForm() {
@@ -310,6 +352,7 @@
     CHECKS.forEach((k) => { $(k).checked = !!st[k]; });
     RANGES.forEach(([k, f]) => { $(k).value = st[k]; $(k + 'Out').textContent = f(st[k]); });
     ['qr1', 'qr2'].forEach((q) => QR_FIELDS.forEach((f) => { $(q + f).value = st[q][f] || ''; }));
+    syncDuo();
     buildSegs();
     buildSwatches();
     syncVisibility();
@@ -318,17 +361,23 @@
 
   function syncVisibility() {
     const t = st.template;
-    const hasBand = t === 'classic' || t === 'block';
-    $('accentSwatches').parentElement.hidden = t !== 'classic';
-    $('band').parentElement.hidden = !hasBand;
-    $('bandOpacityField').hidden = !hasBand || !st.band;
+    const uses = TEMPLATES[t].uses;
+    Object.entries(LOOK_FIELDS).forEach(([k, id]) => { $(id).hidden = !uses.includes(k); });
+    $('bandOpacityField').hidden = !uses.includes('band') || !st.band;
     $('bandLabel').textContent = t === 'block' ? 'Jasny pas pod tytułem' : 'Półprzezroczysty pas pod tytułem';
-    $('shadeField').hidden = t !== 'dark' && t !== 'duo';
-    $('duo').parentElement.hidden = t !== 'duo';
-    $('titleColor').parentElement.hidden = !hasBand;
+    $('shadeLabel').textContent = t === 'gradient' ? 'Krycie karty z tekstem' : 'Przyciemnienie zdjęcia';
+    $('saturationField').hidden = t === 'duo'; // duotone i tak zastępuje kolory zdjęcia
     $('qrFields').hidden = !st.showQr;
     $('btnPdf').disabled = st.format === 'banner';
-    $('btnPdf').title = st.format === 'banner' ? 'PDF dostępny dla formatów A4' : '';
+    $('btnPdf').title = st.format === 'banner' ? 'PDF dostępny dla formatów A3 / A4' : '';
+  }
+
+  function syncDuo() {
+    const preset = Object.keys(DUO).find((k) => DUO[k][0] === st.duoDark.toLowerCase() && DUO[k][1] === st.duoLight.toLowerCase());
+    st.duo = preset || 'custom';
+    $('duo').value = st.duo;
+    $('duoDark').value = st.duoDark;
+    $('duoLight').value = st.duoLight;
   }
 
   function buildSegs() {
@@ -351,7 +400,7 @@
       b.setAttribute('aria-pressed', String(st.template === k));
       b.onclick = () => {
         st.template = k;
-        if (!TEMPLATES[k].formats[st.format]) st.format = 'a4p';
+        if (!TEMPLATES[k].formats[st.format]) st.format = 'portrait';
         buildSegs();
         syncVisibility();
         draw();
@@ -359,12 +408,29 @@
       };
       groups[t.group].appendChild(b);
     });
+    const pw = $('papers');
+    pw.innerHTML = '';
+    Object.entries(PAPERS).forEach(([k, p]) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.label;
+      b.disabled = !FORMATS[st.format].paper;
+      b.title = b.disabled ? 'Baner ma stały rozmiar w pikselach' : `${p.mm[0]}×${p.mm[1]} mm`;
+      b.setAttribute('aria-pressed', String(st.paper === k));
+      b.onclick = () => {
+        st.paper = k;
+        buildSegs();
+        draw();
+        persist();
+      };
+      pw.appendChild(b);
+    });
     const fw = $('formats');
     fw.innerHTML = '';
     Object.entries(FORMATS).forEach(([k, f]) => {
       const b = document.createElement('button');
       b.type = 'button';
-      b.textContent = f.label;
+      b.textContent = formatSize(k, st.paper).label;
       const ok = !!TEMPLATES[st.template].formats[k];
       b.disabled = !ok;
       if (!ok) b.title = 'Niedostępny w tym szablonie';
@@ -407,7 +473,10 @@
       };
       w.appendChild(inp);
     };
+    make('primarySwatches', PRIMARIES, 'primary');
+    make('highlightSwatches', HIGHLIGHTS, 'highlight');
     make('accentSwatches', ACCENTS, 'accent');
+    make('shadeSwatches', SHADES, 'shadeColor');
     make('bgSwatches', BGS, 'bgColor');
   }
 
@@ -426,6 +495,20 @@
       persist();
     })));
 
+    // duotone: preset ustawia oba kolory, ręczna zmiana koloru przełącza na „Własne”
+    $('duo').addEventListener('change', () => {
+      if (DUO[$('duo').value]) [st.duoDark, st.duoLight] = DUO[$('duo').value];
+      syncDuo();
+      draw();
+      persist();
+    });
+    ['duoDark', 'duoLight'].forEach((k) => $(k).addEventListener('input', () => {
+      st[k] = $(k).value;
+      syncDuo();
+      draw();
+      persist();
+    }));
+
     // zdjęcie
     $('filePhoto').addEventListener('change', (e) => { handlePhotoFile(e.target.files[0]); e.target.value = ''; });
     $('zoom').addEventListener('input', () => {
@@ -434,6 +517,12 @@
       persist();
     });
     $('btnFit').onclick = () => { delete st.framing[`${st.template}:${st.format}`]; draw(); persist(); };
+    $('btnFx').onclick = () => {
+      FX.forEach((k) => { st[k] = 0; });
+      syncForm();
+      draw();
+      persist();
+    };
     $('btnRemovePhoto').onclick = removePhoto;
 
     const dz = $('dropzone');
@@ -474,7 +563,7 @@
       try {
         const data = JSON.parse(await readFile(f, 'text'));
         if (data.app !== 'meetit-gen') throw new Error('nieznany format');
-        st = Object.assign(clone(DEFAULTS), data.state);
+        st = loadState(data.state);
         syncForm();
         if (data.photo) await setPhoto(data.photo, { keepFraming: true }); else removePhoto();
         draw();

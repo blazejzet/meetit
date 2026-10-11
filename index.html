@@ -63,8 +63,18 @@
           <label class="field">Powiększenie <output id="zoomOut"></output>
             <input id="zoom" type="range" min="1" max="4" step="0.01">
           </label>
+          <label class="field slim">Jasność <output id="brightnessOut"></output>
+            <input id="brightness" type="range" min="-100" max="100" step="5">
+          </label>
+          <label class="field slim">Kontrast <output id="contrastOut"></output>
+            <input id="contrast" type="range" min="-100" max="100" step="5">
+          </label>
+          <label class="field slim" id="saturationField">Nasycenie <output id="saturationOut"></output>
+            <input id="saturation" type="range" min="-100" max="100" step="5">
+          </label>
           <div class="btns">
             <button type="button" id="btnFit">Reset kadru</button>
+            <button type="button" id="btnFx">Reset korekty</button>
             <button type="button" id="btnRemovePhoto" class="danger">Usuń zdjęcie</button>
           </div>
           <small>Przeciągnij podgląd, by przesunąć kadr; kółko myszy przybliża. Kadr jest zapamiętywany osobno dla każdego formatu.</small>
@@ -73,28 +83,47 @@
 
       <section>
         <h2>Wygląd</h2>
-        <div class="field">Kolor akcentu
+        <div class="field" id="primaryField">Kolor główny
+          <div class="swatches" id="primarySwatches"></div>
+        </div>
+        <div class="field" id="highlightField">Kolor wyróżnienia
+          <div class="swatches" id="highlightSwatches"></div>
+        </div>
+        <div class="field" id="accentField">Kolor akcentu
           <div class="swatches" id="accentSwatches"></div>
         </div>
-        <div class="field">Kolor tła pod zdjęciem <small class="inline">(widoczny przy zdjęciu z przezroczystym tłem)</small>
-          <div class="swatches" id="bgSwatches"></div>
-        </div>
-        <label class="check"><input type="checkbox" id="band"> <span id="bandLabel">Półprzezroczysty pas pod tytułem</span></label>
-        <label class="field slim" id="bandOpacityField">Krycie pasa <output id="bandOpacityOut"></output>
-          <input id="bandOpacity" type="range" min="0.1" max="1" step="0.05">
-        </label>
-        <label class="field slim" id="shadeField">Przyciemnienie zdjęcia <output id="shadeOut"></output>
-          <input id="shade" type="range" min="0" max="0.9" step="0.05">
-        </label>
-        <label class="field">Paleta duotone
+        <div class="field" id="duoField">Kolory duotone
           <select id="duo">
             <option value="bluegreen">Granat → limonka (marka)</option>
             <option value="blue">Granat → błękit</option>
             <option value="mono">Czarno-białe</option>
             <option value="sunset">Fiolet → pomarańcz</option>
+            <option value="forest">Zieleń → pistacja</option>
+            <option value="berry">Burgund → róż</option>
+            <option value="custom">Własne</option>
           </select>
+          <div class="duo-colors">
+            <label>Cienie <input type="color" id="duoDark"></label>
+            <label>Światła <input type="color" id="duoLight"></label>
+          </div>
+        </div>
+        <label class="field slim" id="tintField">Siła zabarwienia zdjęcia <output id="tintOut"></output>
+          <input id="tint" type="range" min="0" max="1" step="0.05">
         </label>
-        <label class="field">Kolor tekstu tytułu
+        <div class="field" id="shadeColorField">Kolor przyciemnienia
+          <div class="swatches" id="shadeSwatches"></div>
+        </div>
+        <div class="field">Kolor tła pod zdjęciem <small class="inline">(widoczny przy zdjęciu z przezroczystym tłem)</small>
+          <div class="swatches" id="bgSwatches"></div>
+        </div>
+        <label class="check" id="bandField"><input type="checkbox" id="band"> <span id="bandLabel">Półprzezroczysty pas pod tytułem</span></label>
+        <label class="field slim" id="bandOpacityField">Krycie pasa <output id="bandOpacityOut"></output>
+          <input id="bandOpacity" type="range" min="0.1" max="1" step="0.05">
+        </label>
+        <label class="field slim" id="shadeField"><span id="shadeLabel">Przyciemnienie zdjęcia</span> <output id="shadeOut"></output>
+          <input id="shade" type="range" min="0" max="0.9" step="0.05">
+        </label>
+        <label class="field" id="titleColorField">Kolor tekstu tytułu
           <select id="titleColor">
             <option value="auto">Automatyczny</option>
             <option value="dark">Ciemny</option>
@@ -133,11 +162,14 @@
 
     <section class="stage">
       <div class="toolbar">
-        <div class="seg" id="formats"></div>
+        <div class="formats">
+          <div class="seg" id="papers" title="Rozmiar papieru"></div>
+          <div class="seg" id="formats"></div>
+        </div>
         <div class="export">
           <select id="quality" title="Rozdzielczość eksportu">
-            <option value="1">Standard</option>
-            <option value="2">2× (druk wysokiej jakości)</option>
+            <option value="1">Standard (300 dpi)</option>
+            <option value="2">2× (600 dpi)</option>
           </select>
           <button type="button" class="primary" data-export="png">PNG</button>
           <button type="button" class="primary" data-export="jpg">JPG</button>
