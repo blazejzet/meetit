@@ -34,8 +34,14 @@
     'sierpnia', 'września', 'października', 'listopada', 'grudnia'];
 
   // ---------- helpers ----------
+  const FAMILIES = {
+    arial: ARIAL,
+    serif: "'Old Standard TT', 'Times New Roman', Times, serif",
+    script: "Caveat, 'Bradley Hand', cursive",
+    narrow: "'Roboto Condensed', 'Arial Narrow', sans-serif",
+  };
   function font(weight, size, family, italic) {
-    return `${italic ? 'italic ' : ''}${weight} ${size}px ${family === 'arial' ? ARIAL : 'Lato, sans-serif'}`;
+    return `${italic ? 'italic ' : ''}${weight} ${size}px ${FAMILIES[family] || 'Lato, sans-serif'}`;
   }
 
   function poly(ctx, pts, fill, alpha) {
@@ -190,6 +196,12 @@
         for (const seg of w) {
           ctx.font = font(fo.weight, size, fo.family, seg.i || fo.italic);
           ctx.fillText(seg.t, cx, cy);
+          if (o.stroke) {
+            ctx.lineJoin = 'round';
+            ctx.lineWidth = o.strokeW || 1;
+            ctx.strokeStyle = o.stroke;
+            ctx.strokeText(seg.t, cx, cy);
+          }
           cx += ctx.measureText(seg.t).width;
         }
       });
@@ -343,9 +355,9 @@
    * Zdjęcie przycięte do prostokąta r, z korektą (jasność / kontrast / nasycenie)
    * i opcjonalnie przemapowane na dwa kolory (duotone).
    */
-  function drawPhoto(ctx, R, r, duo) {
+  function drawPhoto(ctx, R, r, duo, slot = 0, opt = null) {
     const st = R.st;
-    if (!R.img || (!duo && !st.brightness && !st.contrast && !st.saturation)) { drawPhotoRaw(ctx, R, r); return; }
+    if (!R.imgs[slot] || (!duo && !st.brightness && !st.contrast && !st.saturation)) { drawPhotoRaw(ctx, R, r, slot, opt); return; }
     const k = R.k;
     const w = Math.max(1, Math.round(r.w * k));
     const h = Math.max(1, Math.round(r.h * k));
@@ -354,7 +366,7 @@
     oc.height = h;
     const o = oc.getContext('2d');
     o.setTransform(k, 0, 0, k, -r.x * k, -r.y * k);
-    drawPhotoRaw(o, R, r);
+    drawPhotoRaw(o, R, r, slot, opt);
     const id = o.getImageData(0, 0, w, h);
     photoFx(id.data, st, duo);
     o.putImageData(id, 0, 0);
@@ -392,10 +404,15 @@
     }
   }
 
-  function drawPhotoRaw(ctx, R, r) {
-    const st = R.st;
-    const img = R.img;
-    R.photoRect = r;
+  /**
+   * Rysuje zdjęcie ze slotu `slot` przycięte do r i zapisuje obszar w R.areas
+   * (przeciąganie / zoom w podglądzie). opt: { hit(x, y) – test trafienia dla nieprostokątnych kadrów,
+   * label: {x, y} – miejsce podpowiedzi, gdy brak zdjęcia }.
+   */
+  function drawPhotoRaw(ctx, R, r, slot = 0, opt = null) {
+    const img = R.imgs[slot];
+    const area = { slot, rect: r, hit: opt && opt.hit, draw: null };
+    R.areas.push(area);
     if (!img) {
       if (R.preview) {
         ctx.save();
@@ -404,15 +421,16 @@
         g.addColorStop(1, 'rgba(0,0,0,0.12)');
         ctx.fillStyle = g;
         ctx.fillRect(r.x, r.y, r.w, r.h);
-        const s = Math.min(r.w, r.h) * 0.045;
-        text(ctx, 'Przeciągnij tu zdjęcie', r.x + r.w / 2, r.y + r.h * 0.62, { size: s, weight: 700, color: 'rgba(0,0,0,0.35)', align: 'center' });
-        text(ctx, 'lub wybierz je w panelu po lewej', r.x + r.w / 2, r.y + r.h * 0.62 + s * 1.4, { size: s * 0.7, color: 'rgba(0,0,0,0.3)', align: 'center' });
+        const s = Math.max(16, Math.min(r.w, r.h) * 0.045);
+        const multi = R.imgs.length > 1;
+        const tx = (opt && opt.label) || { x: r.x + r.w / 2, y: r.y + r.h * 0.62 };
+        text(ctx, multi ? `Zdjęcie – prelegent ${slot + 1}` : 'Przeciągnij tu zdjęcie', tx.x, tx.y, { size: s, weight: 700, color: 'rgba(0,0,0,0.35)', align: 'center' });
+        text(ctx, multi ? 'przeciągnij je tutaj' : 'lub wybierz je w panelu po lewej', tx.x, tx.y + s * 1.4, { size: s * 0.7, color: 'rgba(0,0,0,0.3)', align: 'center' });
         ctx.restore();
       }
-      R.photoDraw = null;
       return;
     }
-    const f = R.framing;
+    const f = R.framings[slot];
     const base = Math.max(r.w / img.width, r.h / img.height);
     const sc = base * f.zoom;
     const dw = img.width * sc;
@@ -430,7 +448,7 @@
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(img, dx, dy, dw, dh);
     ctx.restore();
-    R.photoDraw = { dw, dh };
+    area.draw = { dw, dh };
   }
 
   // ---------- teksty wspólne ----------
@@ -913,10 +931,14 @@
     berry: ['#3a0626', '#ffb3c7'],
   };
 
-  function datePill(ctx, st, x, y, size, color, bg) {
+  function datePill(ctx, st, x, y, size, color, bg, maxW) {
     const dl = [dateStr(st), timeStr(st, true)].filter(Boolean).join('  ·  ');
     if (!dl) return 0;
     ctx.font = font(900, size);
+    if (maxW && ctx.measureText(dl).width + size * 1.4 > maxW) {
+      size *= maxW / (ctx.measureText(dl).width + size * 1.4);
+      ctx.font = font(900, size);
+    }
     const w = ctx.measureText(dl).width + size * 1.4;
     roundRect(ctx, x, y, w, size * 1.9, size * 0.95, bg);
     text(ctx, dl, x + size * 0.7, y + size * 1.3, { weight: 900, size, color });
@@ -1058,13 +1080,16 @@
   }
 
   // ---------- KOŁO (zdjęcie w kole, data na plakietce) ----------
-  function photoCircle(ctx, R, cx, cy, r) {
+  function photoCircle(ctx, R, cx, cy, r, slot = 0) {
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.clip();
     rect(ctx, cx - r, cy - r, 2 * r, 2 * r, R.st.bgColor);
-    drawPhoto(ctx, R, { x: cx - r, y: cy - r, w: 2 * r, h: 2 * r });
+    drawPhoto(ctx, R, { x: cx - r, y: cy - r, w: 2 * r, h: 2 * r }, false, slot, {
+      hit: (x, y) => (x - cx) ** 2 + (y - cy) ** 2 <= r * r,
+      label: { x: cx, y: cy },
+    });
     ctx.restore();
   }
 
@@ -1295,7 +1320,7 @@
     const ph = { x: -w / 2 + pad, y: -h / 2 + pad, w: w - 2 * pad, h: h - pad - capH };
     rect(ctx, ph.x, ph.y, ph.w, ph.h, st.bgColor);
     drawPhoto(ctx, R, ph);
-    R.photoRect = { x: cx + ph.x, y: cy + ph.y, w: ph.w, h: ph.h }; // przybliżenie dla zoomu kółkiem
+    R.areas[R.areas.length - 1].rect = { x: cx + ph.x, y: cy + ph.y, w: ph.w, h: ph.h }; // przybliżenie (bez obrotu)
     const cap = ph.y + ph.h;
     const s = capH / 120;
     const aff = st.affiliation;
@@ -1423,6 +1448,505 @@
     q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 78, 528, 64, '#fff'));
   }
 
+  // =====================================================================
+  //  DWÓCH PRELEGENTÓW (jeden tytuł, dwa zdjęcia)
+  // =====================================================================
+  /** [{ name, aff }, { name, aff }] – prelegent 1 i 2. */
+  function people(st) {
+    return [
+      { name: (st.speakers || '').split('\n')[0].trim(), aff: (st.affiliation || '').trim() },
+      { name: (st.speaker2 || '').trim(), aff: (st.affiliation2 || '').trim() },
+    ];
+  }
+
+  function pointInPoly(pts, x, y) {
+    let inside = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const [xi, yi] = pts[i], [xj, yj] = pts[j];
+      if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  /** Zdjęcie ze slotu przycięte do wielokąta pts (prostokąt kadru = obwiednia wielokąta). */
+  function photoIn(ctx, R, pts, slot, duo) {
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const r = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+    ctx.save();
+    clipPoly(ctx, pts);
+    rect(ctx, r.x, r.y, r.w, r.h, duo ? R.st.duoDark : R.st.bgColor);
+    drawPhoto(ctx, R, r, duo, slot, {
+      hit: (x, y) => pointInPoly(pts, x, y),
+      label: { x: xs.reduce((a, b) => a + b, 0) / xs.length, y: r.y + r.h * 0.5 },
+    });
+    ctx.restore();
+    return r;
+  }
+
+  /**
+   * Plakietka z nazwiskiem i afiliacją. x – lewa (align left) lub prawa krawędź, y – góra (albo dół przy o.bottom).
+   * o: { size, maxW, bg, color, affColor, align, bottom, upper }
+   */
+  function nameTag(ctx, p, x, y, o) {
+    if (!p.name && !p.aff) return;
+    const name = o.upper ? p.name.toLocaleUpperCase('pl-PL') : p.name;
+    let ns = o.size, as = o.size * 0.72;
+    const pad = o.bg ? o.size * 0.5 : 0;
+    ctx.font = font(900, ns);
+    const wn = ctx.measureText(name).width;
+    ctx.font = font(400, as);
+    const wa = p.aff ? ctx.measureText(p.aff).width : 0;
+    const k = Math.min(1, (o.maxW - 2 * pad) / Math.max(1, wn, wa));
+    ns *= k; as *= k;
+    const w = Math.max(wn, wa) * k + 2 * pad;
+    const h = 2 * pad + (name ? ns * 0.74 : 0) + (p.aff ? as * (name ? 1.45 : 0.74) : 0);
+    const bx = o.align === 'right' ? x - w : x;
+    const by = o.bottom ? y - h : y;
+    if (o.bg) rect(ctx, bx, by, w, h, o.bg);
+    const tx = o.align === 'right' ? bx + w - pad : bx + pad;
+    const nb = by + pad + ns * 0.74;
+    ctx.save();
+    if (o.shadow) setShadow(ctx, o.R, true, ns);
+    if (name) text(ctx, name, tx, nb, { weight: 900, size: ns, color: o.color, align: o.align });
+    if (p.aff) text(ctx, p.aff, tx, name ? nb + as * 1.45 : by + pad + as * 0.74, { weight: o.affWeight || 400, size: as, color: o.affColor || o.color, align: o.align });
+    ctx.restore();
+  }
+
+  /** Dwa nazwiska (z afiliacją) jako kolumny: lewa od x1, prawa wyrównana do x2. Zwraca wysokość bloku. */
+  function namePair(ctx, R, st, x1, x2, nameBl, o) {
+    const [a, b] = people(st);
+    const half = (x2 - x1) / 2 - 20;
+    ctx.save();
+    if (o.shadow) setShadow(ctx, R, true, o.size);
+    [[a, x1, 'left'], [b, x2, 'right']].forEach(([p, x, align]) => {
+      if (p.name) textFit(ctx, o.upper ? p.name.toLocaleUpperCase('pl-PL') : p.name, x, nameBl, half, { weight: 900, size: o.size, color: o.color, align });
+      if (p.aff) textFit(ctx, p.aff, x, nameBl + o.size * 1.2, half, { weight: 300, size: o.size * 0.85, color: o.affColor, align });
+    });
+    ctx.restore();
+  }
+
+  /** Data / godzina / miejsce i kody QR w dolnej części klasycznego plakatu (wspólne z szablonem Klasyczny). */
+  function classicFooterPortrait(ctx, st) {
+    text(ctx, dateStr(st), 140, 1214, { weight: 700, size: 20.5, family: 'arial' });
+    text(ctx, timeStr(st), 140, 1236, { weight: 700, size: 20.5, family: 'arial' });
+    lines(ctx, placeLines(st), 137, 1276, 20, { weight: 300, size: 19.5, color: '#222' });
+    qrs(st).forEach((q, i) => qrItem(ctx, q, 765, 778, 1180 + i * 90, 62, { labelSize: 20, family: 'arial' }));
+  }
+
+  // ---------- KLASYCZNY ×2 ----------
+  function duoClassicPortrait(ctx, R) {
+    const st = R.st;
+    rect(ctx, 0, 0, 990, 1400, st.bgColor);
+    photoIn(ctx, R, [[0, 0], [540, 0], [450, 1400], [0, 1400]], 0);
+    photoIn(ctx, R, [[540, 0], [990, 0], [990, 1400], [450, 1400]], 1);
+    poly(ctx, [[536, 0], [544, 0], [454, 1400], [446, 1400]], '#ffffff');
+    if (st.band) poly(ctx, [[0, 150], [990, 120], [990, 488], [930, 550], [0, 392]], st.accent, st.bandOpacity);
+
+    poly(ctx, [[0, 0], [285, 0], [553, 219], [472, 276], [0, 200]], '#ffffff');
+    poly(ctx, [[285, 0], [990, 0], [990, 164], [600, 257]], BLUE);
+    poly(ctx, [[300, 1248], [610, 1152], [990, 1180], [990, 1400], [300, 1400]], st.accent);
+    poly(ctx, [[0, 1222], [290, 1143], [730, 1400], [0, 1400]], '#fffffb');
+
+    drawUmk(ctx, 159, 146, 1);
+    drawWordmark(ctx, R, 545.8, 165.6, 282.5, { greenIt: st.greenIt });
+
+    const light = titleLight(st, false);
+    const fit = fitRich(ctx, st.title, { weight: 900, size: 54 * st.titleScale, minSize: 24, lh: 1.04, maxW: 870, maxH: 4 * 56 * st.titleScale + 8, upper: st.titleUpper });
+    const n = fit.lines.length;
+    const firstBl = 352 - ((n - 1) * fit.lh) / 2 + fit.size * 0.36;
+    drawRich(ctx, R, fit, 495, firstBl, { align: 'center', color: light ? '#fff' : '#111', shadow: light });
+
+    const [a, b] = people(st);
+    const tag = { size: 30, maxW: 400, bg: '#ffffff', color: '#111', affColor: '#444', bottom: true };
+    nameTag(ctx, a, 40, 1110, Object.assign({}, tag, { align: 'left' }));
+    nameTag(ctx, b, 950, 1110, Object.assign({}, tag, { align: 'right' }));
+    classicFooterPortrait(ctx, st);
+  }
+
+  function duoClassicBanner(ctx, R) {
+    const st = R.st;
+    rect(ctx, 0, 0, 1400, 735, '#ffffff');
+    photoIn(ctx, R, [[0, 0], [400, 0], [370, 735], [0, 735]], 0);
+    photoIn(ctx, R, [[400, 0], [760, 0], [760, 735], [370, 735]], 1);
+    poly(ctx, [[397, 0], [403, 0], [373, 735], [367, 735]], '#ffffff');
+    poly(ctx, [[0, 0], [400, 0], [358, 170], [0, 150]], '#ffffff');
+    drawLogo(ctx, 60, 50, 88);
+    poly(ctx, [[612, 0], [1400, 0], [1400, 97], [760, 160]], BLUE);
+    drawWordmark(ctx, R, 818, 97, 292, { greenIt: st.greenIt });
+
+    const [a, b] = people(st);
+    const tag = { size: 25, maxW: 330, bg: '#ffffff', color: '#111', affColor: '#444', bottom: true };
+    nameTag(ctx, a, 24, 711, Object.assign({}, tag, { align: 'left' }));
+    nameTag(ctx, b, 736, 711, Object.assign({}, tag, { align: 'right' }));
+
+    let fit;
+    for (let s = 44 * st.titleScale; s >= 20; s -= 1) {
+      fit = fitRich(ctx, st.title, { weight: 900, size: s, minSize: s, lh: 1.15, maxW: 525, upper: st.titleUpper });
+      if (250 + (fit.lines.length - 1) * fit.lh <= 480) break;
+    }
+    drawRich(ctx, R, fit, 812, 250, { align: 'left', color: '#111' });
+
+    text(ctx, dateStr(st), 815, 545, { weight: 700, size: 22, family: 'arial' });
+    text(ctx, timeStr(st), 815, 575, { weight: 700, size: 22, family: 'arial' });
+    lines(ctx, placeLines(st), 812, 622, 26, { weight: 300, size: 22.5, color: '#333' });
+    const q = qrs(st);
+    if (q.length) {
+      rect(ctx, 1146, 515, 194, q.length > 1 ? 171 : 82, st.accent);
+      q.forEach((it, i) => qrItem(ctx, it, 1256, 1266, 520 + i * 92, 62, { labelSize: 21, family: 'arial' }));
+    }
+  }
+
+  // ---------- NOWOCZESNY ×2 ----------
+  function modernDate(ctx, st, on, x, base, big, maxW) {
+    const dp = dateParts(st);
+    if (!dp) return x;
+    text(ctx, String(dp.d), x, base, { weight: 900, size: big, color: on.fg });
+    ctx.font = font(900, big);
+    const dx = x + ctx.measureText(String(dp.d)).width + big * 0.16;
+    const s = big / 110;
+    textFit(ctx, `${dp.month} ${dp.y}`, dx, base - 55 * s, maxW - dx, { weight: 900, size: 28 * s, color: on.fg });
+    textFit(ctx, dp.weekday, dx, base - 27 * s, maxW - dx, { size: 22 * s, color: on.muted });
+    textFit(ctx, timeStr(st, true), dx, base - 2 * s, maxW - dx, { size: 22 * s, color: on.muted });
+    return dx;
+  }
+
+  function duoModernPortrait(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 990, 1400, P);
+    photoIn(ctx, R, [[0, 0], [520, 0], [470, 823], [0, 880]], 0);
+    photoIn(ctx, R, [[520, 0], [990, 0], [990, 760], [470, 823]], 1);
+    poly(ctx, [[513, 0], [527, 0], [477, 822], [463, 824]], H);
+    poly(ctx, [[0, 880], [990, 760], [990, 774], [0, 894]], H);
+
+    poly(ctx, [[0, 0], [415, 0], [385, 192], [0, 192]], '#fff');
+    drawLogo(ctx, 60, 60, 92);
+    poly(ctx, [[600, 0], [990, 0], [990, 172], [574, 172]], P);
+    drawWordmark(ctx, R, 640, 116, 290, { greenIt: st.greenIt, color: on.fg });
+
+    const [a, b] = people(st);
+    const tag = { size: 30, bg: H, color: inkOn(H), bottom: true };
+    nameTag(ctx, a, 40, 830, Object.assign({}, tag, { align: 'left', maxW: 400 }));
+    nameTag(ctx, b, 950, 730, Object.assign({}, tag, { align: 'right', maxW: 420 }));
+
+    const fit = fitTitleUntil(ctx, st, { top: 990, size: 70 * st.titleScale, minSize: 30, lh: 1.04, maxW: 850, weight: 900 }, 1150, () => 0);
+    drawRich(ctx, R, fit, 70, 990, { align: 'left', color: on.fg });
+
+    rect(ctx, 70, 1192, 850, 2, on.line);
+    modernDate(ctx, st, on, 66, 1318, 110, 430);
+    lines(ctx, placeLines(st), 445, 1261, 26, { weight: 400, size: 21, color: on.muted });
+    const q = qrs(st);
+    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 92 + 12, 1222, 80, on.fg));
+  }
+
+  function duoModernBanner(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 1400, 735, P);
+    photoIn(ctx, R, [[660, 0], [1040, 0], [960, 735], [540, 735]], 0);
+    photoIn(ctx, R, [[1040, 0], [1400, 0], [1400, 735], [960, 735]], 1);
+    poly(ctx, [[646, 0], [660, 0], [540, 735], [526, 735]], H);
+    poly(ctx, [[1033, 0], [1047, 0], [967, 735], [953, 735]], H);
+    poly(ctx, [[1092, 0], [1400, 0], [1400, 150], [1070, 150]], '#ffffff');
+    drawLogo(ctx, 1124, 40, 80);
+
+    const [a, b] = people(st);
+    const tag = { size: 24, bg: H, color: inkOn(H), bottom: true };
+    nameTag(ctx, a, 600, 705, Object.assign({}, tag, { align: 'left', maxW: 340 }));
+    nameTag(ctx, b, 1370, 705, Object.assign({}, tag, { align: 'right', maxW: 380 }));
+
+    drawWordmark(ctx, R, 70, 95, 270, { greenIt: st.greenIt, tagline: true, color: on.fg, taglineColor: on.muted });
+    const fit = fitTitleUntil(ctx, st, { top: 222, size: 54 * st.titleScale, minSize: 24, lh: 1.08, maxW: 460, weight: 900 }, 520, () => 0);
+    drawRich(ctx, R, fit, 70, 222, { align: 'left', color: on.fg });
+
+    const q = qrs(st);
+    const qx = 548 - q.length * 80;
+    const dx = modernDate(ctx, st, on, 66, 665, 88, qx - 12);
+    if (dateParts(st)) textFit(ctx, placeOneLine(st), dx, 690, qx - 12 - dx, { size: 15, color: on.muted });
+    else textFit(ctx, placeOneLine(st), 70, 665, qx - 82, { size: 18, color: on.muted });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 12 + i * 80, 574, 66, on.fg));
+  }
+
+  // ---------- KOŁO ×2 ----------
+  function duoCirclePortrait(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 990, 1400, P);
+    ring(ctx, 290, 470, 262, 2.2, 4.6, 12, H);
+    ring(ctx, 700, 650, 262, -0.9, 1.6, 12, H);
+    photoCircle(ctx, R, 290, 470, 230, 0);
+    ctx.beginPath();
+    ctx.arc(700, 650, 242, 0, Math.PI * 2);
+    ctx.fillStyle = P;
+    ctx.fill();
+    photoCircle(ctx, R, 700, 650, 230, 1);
+    dateBadge(ctx, st, 850, 900, 96, H);
+    drawLogo(ctx, 60, 60, 90, on.logo);
+
+    const [a, b] = people(st);
+    const nt = { size: 30, color: H, affColor: on.fg, affWeight: 300 };
+    nameTag(ctx, b, 920, 372, Object.assign({}, nt, { align: 'right', maxW: 470, bottom: true }));
+    nameTag(ctx, a, 70, 752, Object.assign({}, nt, { align: 'left', maxW: 430 }));
+
+    const fit = fitTitleUntil(ctx, st, { top: 1065, size: 62 * st.titleScale, minSize: 28, lh: 1.05, maxW: 850, weight: 900 }, 1185, () => 0);
+    drawRich(ctx, R, fit, 70, 1065, { align: 'left', color: on.fg });
+
+    rect(ctx, 70, 1236, 850, 2, on.line);
+    drawWordmark(ctx, R, 70, 1306, 250, { greenIt: st.greenIt, tagline: true, color: on.fg, taglineColor: on.muted });
+    const q = qrs(st);
+    const qx = 920 - q.length * 92;
+    textFit(ctx, timeStr(st, true), 372, 1284, qx - 382, { weight: 900, size: 22, color: on.fg });
+    placeLines(st).forEach((s, i) => textFit(ctx, s, 372, 1314 + i * 24, qx - 382, { size: 19, color: on.muted }));
+    q.forEach((it, i) => qrTile(ctx, it, qx + 12 + i * 92, 1262, 78, on.fg));
+  }
+
+  function duoCircleBanner(ctx, R) {
+    const st = R.st;
+    const P = st.primary, H = st.highlight, on = onColor(P);
+    rect(ctx, 0, 0, 1400, 735, P);
+    ring(ctx, 880, 410, 232, 1.9, 4.3, 10, H);
+    ring(ctx, 1175, 300, 232, -1.2, 1.3, 10, H);
+    photoCircle(ctx, R, 880, 410, 205, 0);
+    ctx.beginPath();
+    ctx.arc(1175, 300, 215, 0, Math.PI * 2);
+    ctx.fillStyle = P;
+    ctx.fill();
+    photoCircle(ctx, R, 1175, 300, 205, 1);
+    dateBadge(ctx, st, 1015, 96, 78, H);
+    drawLogo(ctx, 60, 50, 76, on.logo);
+    drawWordmark(ctx, R, 320, 100, 230, { greenIt: st.greenIt, color: on.fg });
+
+    const [a, b] = people(st);
+    const nt = { size: 24, color: H, affColor: on.fg, affWeight: 300 };
+    nameTag(ctx, a, 1050, 646, Object.assign({}, nt, { align: 'right', maxW: 330 }));
+    nameTag(ctx, b, 1370, 540, Object.assign({}, nt, { align: 'right', maxW: 300 }));
+
+    const fit = fitTitleUntil(ctx, st, { top: 238, size: 52 * st.titleScale, minSize: 24, lh: 1.07, maxW: 560, weight: 900 }, 505, () => 0);
+    drawRich(ctx, R, fit, 60, 238, { align: 'left', color: on.fg });
+
+    const q = qrs(st);
+    const qx = 640 - q.length * 84;
+    text(ctx, timeStr(st, true), 62, 594, { weight: 900, size: 23, color: on.fg });
+    textFit(ctx, placeOneLine(st), 62, 626, qx - 82, { size: 19, color: on.muted });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 84, 548, 66, on.fg));
+  }
+
+  // ---------- DUOTONE ×2 ----------
+  function duoDuoPortrait(ctx, R) {
+    const st = R.st;
+    const D = st.duoDark, H = st.highlight;
+    rect(ctx, 0, 0, 990, 1400, D);
+    photoIn(ctx, R, [[0, 0], [535, 0], [455, 1400], [0, 1400]], 0, true);
+    photoIn(ctx, R, [[535, 0], [990, 0], [990, 1400], [455, 1400]], 1, true);
+    poly(ctx, [[530, 0], [540, 0], [460, 1400], [450, 1400]], H);
+    const g = ctx.createLinearGradient(0, 560, 0, 1150);
+    g.addColorStop(0, rgba(D, 0));
+    g.addColorStop(1, rgba(D, 0.5 + st.shade * 0.5));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 560, 990, 840);
+    const gt = ctx.createLinearGradient(0, 0, 0, 260);
+    gt.addColorStop(0, rgba(D, 0.55));
+    gt.addColorStop(1, rgba(D, 0));
+    ctx.fillStyle = gt;
+    ctx.fillRect(0, 0, 990, 260);
+
+    drawWordmark(ctx, R, 70, 130, 360, { greenIt: st.greenIt, tagline: true, taglineColor: '#e6eef8' });
+    drawUmk(ctx, 708, 108, 0.92, 'neg');
+
+    const fit = fitRich(ctx, st.title, { weight: 900, size: 68 * st.titleScale, minSize: 30, lh: 1.04, maxW: 850, maxH: 4 * 72 * st.titleScale, upper: st.titleUpper });
+    const firstBl = 1105 - (fit.lines.length - 1) * fit.lh;
+    namePair(ctx, R, st, 72, 918, firstBl - fit.size * 1.05 - 32, { size: 26, color: H, affColor: '#fff', upper: true, shadow: true });
+    drawRich(ctx, R, fit, 70, firstBl, { align: 'left', color: '#fff', shadow: true });
+
+    datePill(ctx, st, 70, 1150, 26, inkOn(H), H, 850);
+    lines(ctx, placeLines(st), 72, 1268, 25, { weight: 400, size: 21, color: '#e6eef8' });
+    const q = qrs(st);
+    q.forEach((it, i) => qrTile(ctx, it, 920 - (q.length - i) * 94 + 14, 1222, 80, '#fff'));
+  }
+
+  function duoDuoBanner(ctx, R) {
+    const st = R.st;
+    const D = st.duoDark, H = st.highlight;
+    rect(ctx, 0, 0, 1400, 735, D);
+    photoIn(ctx, R, [[770, 0], [1100, 0], [1060, 735], [730, 735]], 0, true);
+    photoIn(ctx, R, [[1100, 0], [1400, 0], [1400, 735], [1060, 735]], 1, true);
+    shadeV(ctx, 730, 470, 670, 265, 0.45 + st.shade * 0.5, 470, 735, D);
+    poly(ctx, [[763, 0], [773, 0], [733, 735], [723, 735]], H);
+    poly(ctx, [[1095, 0], [1105, 0], [1065, 735], [1055, 735]], H);
+
+    const [a, b] = people(st);
+    const nt = { size: 23, color: H, affColor: '#fff', upper: true, bottom: true, shadow: true, R };
+    nameTag(ctx, a, 760, 700, Object.assign({}, nt, { align: 'left', maxW: 285 }));
+    nameTag(ctx, b, 1090, 700, Object.assign({}, nt, { align: 'left', maxW: 285 }));
+
+    drawWordmark(ctx, R, 70, 95, 270, { greenIt: st.greenIt, tagline: true, taglineColor: '#e6eef8' });
+    drawLogo(ctx, 420, 44, 76, 'neg');
+    const fit = fitTitleUntil(ctx, st, { top: 238, size: 54 * st.titleScale, minSize: 24, lh: 1.06, maxW: 620, weight: 900 }, 500, () => 0);
+    drawRich(ctx, R, fit, 70, 238, { align: 'left', color: '#fff' });
+
+    const q = qrs(st);
+    const qx = 700 - q.length * 84;
+    datePill(ctx, st, 70, 560, 23, inkOn(H), H, qx - 80);
+    textFit(ctx, placeOneLine(st), 72, 660, qx - 82, { size: 19, color: '#e6eef8' });
+    q.forEach((it, i) => qrTile(ctx, it, qx + 14 + i * 84, 548, 70, '#fff'));
+  }
+
+  // =====================================================================
+  //  SEMINARIUM WYDZIAŁOWE (kolokwium – na wzór plakatu WMiI)
+  // =====================================================================
+  // Godło WMiI (wektor z plakatu kolokwium), układ 108×140.
+  const EMBLEM = [
+    ["M 53.74 117.71C 34 117.71 17.91 96.07 17.91 69.57C 17.91 43.06 34 21.42 53.74 21.42C 73.48 21.42 89.57 43.06 89.57 69.57C 89.57 96.07 73.48 117.71 53.74 117.71ZM 68.58 117.85C 77.24 113.05 84.34 104.05 88.5 92.79L 93.61 96.28C 89.26 108.12 82.08 117.73 73.28 123.49ZM 53.57 122.23C 49.63 122.23 45.9 121.14 42.3 119.61L 40.44 126.89C 44.54 128.64 48.98 129.59 53.66 129.59C 58.34 129.59 62.78 128.64 66.89 126.89L 65.03 119.61C 61.43 121.14 57.5 122.23 53.57 122.23ZM 38.74 117.85C 30.08 113.05 22.99 104.05 18.82 92.79L 13.71 96.28C 18.06 108.12 25.25 117.73 34.05 123.49ZM 98.38 69.55C 98.38 62.79 97.51 56.39 95.94 50.39L 90.01 51.09C 91.66 56.9 92.54 63.12 92.54 69.63C 92.54 76.14 91.66 82.36 90.01 88.17L 95.94 88.87C 97.51 82.87 98.38 76.31 98.38 69.55ZM 68.58 21.41C 77.24 26.21 84.34 35.21 88.5 46.47L 93.61 42.98C 89.26 31.14 82.08 21.53 73.28 15.77ZM 53.57 17.03C 49.63 17.03 45.9 18.12 42.3 19.65L 40.44 12.37C 44.54 10.62 48.98 9.67 53.66 9.67C 58.34 9.67 62.78 10.62 66.89 12.37L 65.03 19.65C 61.43 18.12 57.5 17.03 53.57 17.03ZM 106.03 69.63L 102.41 66.38C 103.56 56.09 103.56 55.87 99.71 47.26L 102.12 43.73L 98.28 42.7C 96.26 32.76 95.35 32.23 89.26 26.18L 90.57 22.28L 86.82 22.61C 81.73 15.31 81.25 15.55 74.24 12.15L 73.52 7.74L 69.75 9.51C 63.62 5.45 62.88 5.28 55.84 6.12L 53.66 1.9L 51.48 6.12C 44.45 5.28 43.7 5.45 37.57 9.51L 33.8 7.74L 33.08 12.15C 26.07 15.55 25.6 15.31 20.5 22.61L 16.75 22.28L 18.06 26.18C 11.97 32.23 11.06 32.76 9.05 42.7L 5.2 43.73L 7.61 47.26C 3.77 55.87 3.77 56.09 4.91 66.38L 1.3 69.63L 4.91 72.88C 3.77 83.17 3.77 83.39 7.61 92L 5.2 95.53L 9.05 96.56C 11.06 106.5 11.97 107.03 18.06 113.08L 16.75 116.99L 20.5 116.65C 25.6 123.95 26.07 123.71 33.08 127.11L 33.8 131.52L 37.57 129.75C 43.7 133.81 44.45 133.98 51.48 133.14L 53.66 137.36L 55.84 133.14C 62.88 133.98 63.62 133.81 69.75 129.75L 73.52 131.52L 74.24 127.11C 81.25 123.71 81.73 123.95 86.82 116.65L 90.57 116.99L 89.26 113.08C 95.35 107.03 96.26 106.5 98.28 96.56L 102.12 95.53L 99.71 92C 103.56 83.39 103.56 83.17 102.41 72.88ZM 14.78 69.63C 14.78 63.12 15.67 56.9 17.31 51.09L 11.38 50.39C 9.81 56.39 8.97 62.87 8.97 69.63C 8.97 76.39 9.81 82.87 11.38 88.87L 17.31 88.17C 15.67 82.36 14.78 76.14 14.78 69.63ZM 38.74 21.41C 30.08 26.21 22.99 35.21 18.82 46.47L 13.71 42.98C 18.06 31.14 25.25 21.53 34.05 15.77Z", false, 1.66135],
+    ["M 32.05 71.55L 32 67.28L 30.71 67.36L 30.76 67.22C 31.43 67.06 31.82 66.97 32.35 66.67C 32.88 66.37 32.96 65.8 33.3 65.42C 33.42 65.42 33.46 65.42 33.79 65.43C 33.51 65.99 33.32 66.6 33.26 67.25C 33.16 68.8 33.39 70.3 33.39 71.52C 33.39 71.74 33.47 72.02 33.58 72.15C 33.63 72.19 34.22 72.43 34.23 72.56C 34.25 72.68 33.95 72.53 34.07 72.59C 33.67 72.46 33.49 72.35 33.09 72.27C 32.79 72.21 32.47 72.19 32.05 72.32C 31.78 72.4 31.75 72.46 31.59 72.53C 31.43 72.56 31.41 72.67 31.31 72.49C 31.48 72.35 31.61 72.3 31.73 72.15C 31.85 72 32.05 71.83 32.05 71.55Z", true, 0.216],
+    ["M 35.43 71.55L 35.38 67.28L 34.09 67.36L 34.14 67.22C 34.81 67.06 35.2 66.97 35.73 66.67C 36.26 66.37 36.35 65.8 36.68 65.42C 36.81 65.42 36.84 65.42 37.18 65.43C 36.89 65.99 36.7 66.6 36.65 67.25C 36.54 68.8 36.77 70.3 36.77 71.52C 36.77 71.74 36.86 72.02 36.96 72.15C 37.02 72.19 37.6 72.43 37.62 72.56C 37.63 72.68 37.33 72.53 37.46 72.59C 37.05 72.46 36.88 72.35 36.47 72.27C 36.17 72.21 35.85 72.19 35.43 72.32C 35.17 72.4 35.13 72.46 34.97 72.53C 34.81 72.56 34.8 72.67 34.69 72.49C 34.87 72.35 34.99 72.3 35.11 72.15C 35.24 72 35.43 71.83 35.43 71.55Z", true, 0.216],
+    ["M 39.1 71.55L 39.05 67.28L 37.76 67.36L 37.82 67.22C 38.49 67.06 38.87 66.97 39.4 66.67C 39.93 66.37 40.02 65.8 40.35 65.42C 40.48 65.42 40.51 65.42 40.85 65.43C 40.57 65.99 40.37 66.6 40.32 67.25C 40.21 68.8 40.44 70.3 40.44 71.52C 40.44 71.74 40.53 72.02 40.64 72.15C 40.69 72.19 41.27 72.43 41.29 72.56C 41.31 72.68 41.01 72.53 41.13 72.59C 40.72 72.46 40.55 72.35 40.14 72.27C 39.84 72.21 39.53 72.19 39.1 72.32C 38.84 72.4 38.8 72.46 38.65 72.53C 38.49 72.56 38.47 72.67 38.36 72.49C 38.54 72.35 38.66 72.3 38.79 72.15C 38.91 72 39.1 71.83 39.1 71.55Z", true, 0.216],
+    ["M 42.49 71.55L 42.44 67.28L 41.15 67.36L 41.2 67.22C 41.87 67.06 42.26 66.97 42.79 66.67C 43.32 66.37 43.4 65.8 43.74 65.42C 43.86 65.42 43.9 65.42 44.23 65.43C 43.95 65.99 43.76 66.6 43.7 67.25C 43.6 68.8 43.83 70.3 43.83 71.52C 43.83 71.74 43.91 72.02 44.02 72.15C 44.07 72.19 44.66 72.43 44.67 72.56C 44.69 72.68 44.39 72.53 44.51 72.59C 44.11 72.46 43.93 72.35 43.53 72.27C 43.23 72.21 42.91 72.19 42.49 72.32C 42.22 72.4 42.19 72.46 42.03 72.53C 41.87 72.56 41.85 72.67 41.75 72.49C 41.92 72.35 42.05 72.3 42.17 72.15C 42.29 72 42.49 71.83 42.49 71.55Z", true, 0.216],
+    ["M 45.87 71.55L 45.82 67.28L 44.53 67.36L 44.59 67.22C 45.25 67.06 45.64 66.97 46.17 66.67C 46.7 66.37 46.79 65.8 47.12 65.42C 47.25 65.42 47.28 65.42 47.62 65.43C 47.33 65.99 47.14 66.6 47.09 67.25C 46.98 68.8 47.21 70.3 47.21 71.52C 47.21 71.74 47.3 72.02 47.4 72.15C 47.46 72.19 48.04 72.43 48.06 72.56C 48.07 72.68 47.77 72.53 47.9 72.59C 47.49 72.46 47.32 72.35 46.91 72.27C 46.61 72.21 46.29 72.19 45.87 72.32C 45.61 72.4 45.57 72.46 45.41 72.53C 45.25 72.56 45.24 72.67 45.13 72.49C 45.31 72.35 45.43 72.3 45.55 72.15C 45.68 72 45.87 71.83 45.87 71.55Z", true, 0.216],
+    ["M 59.84 71.55L 59.79 67.28L 58.5 67.36L 58.55 67.22C 59.22 67.06 59.61 66.97 60.14 66.67C 60.67 66.37 60.76 65.8 61.09 65.42C 61.21 65.42 61.25 65.42 61.58 65.43C 61.3 65.99 61.11 66.6 61.06 67.25C 60.95 68.8 61.18 70.3 61.18 71.52C 61.18 71.74 61.27 72.02 61.37 72.15C 61.43 72.19 62.01 72.43 62.02 72.56C 62.04 72.68 61.74 72.53 61.87 72.59C 61.46 72.46 61.28 72.35 60.88 72.27C 60.58 72.21 60.26 72.19 59.84 72.32C 59.57 72.4 59.54 72.46 59.38 72.53C 59.22 72.56 59.21 72.67 59.1 72.49C 59.28 72.35 59.4 72.3 59.52 72.15C 59.65 72 59.84 71.83 59.84 71.55Z", true, 0.216],
+    ["M 74.31 71.55L 74.26 67.28L 72.97 67.36L 73.03 67.22C 73.69 67.06 74.08 66.97 74.61 66.67C 75.14 66.37 75.23 65.8 75.56 65.42C 75.69 65.42 75.72 65.42 76.06 65.43C 75.77 65.99 75.58 66.6 75.53 67.25C 75.42 68.8 75.65 70.3 75.65 71.52C 75.65 71.74 75.74 72.02 75.84 72.15C 75.9 72.19 76.48 72.43 76.5 72.56C 76.51 72.68 76.21 72.53 76.34 72.59C 75.93 72.46 75.76 72.35 75.35 72.27C 75.05 72.21 74.73 72.19 74.31 72.32C 74.05 72.4 74.01 72.46 73.85 72.53C 73.69 72.56 73.68 72.67 73.57 72.49C 73.75 72.35 73.87 72.3 73.99 72.15C 74.12 72 74.31 71.83 74.31 71.55Z", true, 0.216],
+    ["M 50.64 72.52C 49.4 72.52 48.4 70.9 48.4 68.95C 48.4 67 49.4 65.39 50.64 65.39C 51.89 65.39 52.89 67 52.89 68.95C 52.89 70.9 51.89 72.52 50.64 72.52ZM 51.23 71.39C 50.49 71.54 49.67 70.52 49.39 69.16C 49.12 67.8 49.47 66.56 50.22 66.41C 50.94 66.26 51.76 67.3 52.03 68.66C 52.31 70.02 51.96 71.24 51.23 71.39Z", true, 0.216],
+    ["M 55.9 72.52C 54.66 72.52 53.66 70.9 53.66 68.95C 53.66 67 54.66 65.39 55.9 65.39C 57.14 65.39 58.14 67 58.14 68.95C 58.14 70.9 57.14 72.52 55.9 72.52ZM 56.49 71.39C 55.74 71.54 54.93 70.52 54.64 69.16C 54.37 67.8 54.73 66.56 55.47 66.41C 56.2 66.26 57.01 67.3 57.28 68.66C 57.57 70.02 57.21 71.24 56.49 71.39Z", true, 0.216],
+    ["M 64.83 72.52C 63.59 72.52 62.59 70.9 62.59 68.95C 62.59 67 63.59 65.39 64.83 65.39C 66.07 65.39 67.07 67 67.07 68.95C 67.07 70.9 66.07 72.52 64.83 72.52ZM 65.41 71.39C 64.67 71.54 63.86 70.52 63.57 69.16C 63.3 67.8 63.66 66.56 64.4 66.41C 65.13 66.26 65.94 67.3 66.21 68.66C 66.5 70.02 66.14 71.24 65.41 71.39Z", true, 0.216],
+    ["M 70.37 72.52C 69.13 72.52 68.13 70.9 68.13 68.95C 68.13 67 69.13 65.39 70.37 65.39C 71.61 65.39 72.61 67 72.61 68.95C 72.61 70.9 71.61 72.52 70.37 72.52ZM 70.96 71.39C 70.22 71.54 69.4 70.52 69.12 69.16C 68.84 67.8 69.2 66.56 69.94 66.41C 70.67 66.26 71.49 67.3 71.76 68.66C 72.04 70.02 71.69 71.24 70.96 71.39Z", true, 0.216],
+    ["M 34.44 57.88C 37.51 65.7 48.87 60.83 53.66 55.54C 57.66 51.12 58.57 49.54 60.78 43.43C 62.23 39.43 61.94 24.8 53.66 25.21C 45.38 25.62 45.2 37.74 47.06 43.47C 48.93 49.24 49.3 51.13 53.37 55.82C 59.08 62.41 70.71 65.43 73.66 58.29C 76.6 51.15 68.15 45.27 60.86 43.33C 56.73 42.23 51.89 42.51 47.04 43.47C 42.82 44.31 31.38 50.06 34.44 57.88Z", false, 1.72346],
+    ["M 34.44 80.2C 37.51 72.38 48.87 77.25 53.66 82.54C 57.66 86.96 58.57 88.54 60.78 94.65C 62.23 98.65 61.94 113.27 53.66 112.86C 45.38 112.45 45.2 100.34 47.06 94.6C 48.93 88.84 49.3 86.94 53.37 82.25C 59.08 75.67 70.71 72.65 73.66 79.79C 76.6 86.93 68.15 92.8 60.86 94.75C 56.73 95.85 51.89 95.57 47.04 94.6C 42.82 93.77 31.38 88.02 34.44 80.2Z", false, 1.72346],
+  ];
+  const EMBLEM_PATHS = [];
+
+  /** Godło wysokości h, lewy górny róg w (x, y). Zwraca szerokość. */
+  function drawEmblem(ctx, x, y, h, color) {
+    if (!EMBLEM_PATHS.length && window.Path2D) EMBLEM.forEach(([d, fill, w]) => EMBLEM_PATHS.push([new Path2D(d), fill, w]));
+    const s = h / 140;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(s, s);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineJoin = 'round';
+    EMBLEM_PATHS.forEach(([p, fill, w]) => {
+      ctx.lineWidth = w;
+      if (fill) ctx.fill(p, 'evenodd');
+      ctx.stroke(p);
+    });
+    ctx.restore();
+    return 108 * s;
+  }
+
+  const SEM = {
+    yellow: '#ffec00',
+    emblem: '#fff35c',
+    script: '#3d6652',
+    stops: [[0, '#fff584'], [0.075, '#93b68a'], [0.175, '#007a7f'], [0.35, '#00323b'], [0.575, '#007a7f'],
+      [0.7, '#549786'], [0.85, '#a3c08a'], [1, '#fff585']],
+  };
+
+  const WEEKDAYS_ACC = ['w niedzielę', 'w poniedziałek', 'we wtorek', 'w środę', 'w czwartek', 'w piątek', 'w sobotę'];
+
+  /** „Kolokwium odbędzie się / w środę 5.11.2025 / o godz. 10:15 w auli WMiI UMK”. */
+  function seminarInfo(st) {
+    const out = [];
+    if (st.announce) out.push(st.announce.trim());
+    const dp = dateParts(st);
+    if (dp) out.push(`${WEEKDAYS_ACC[new Date(dp.y, dp.m - 1, dp.d).getDay()]} ${dp.d}.${dp.mm}.${dp.y}`);
+    const tail = [st.time ? `o godz. ${st.time}` : '', placeOneLine(st)].filter(Boolean).join(' ');
+    if (tail) out.push(tail);
+    return out;
+  }
+
+  function semBackground(ctx, w, h, stops) {
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    stops.forEach(([t, c]) => g.addColorStop(t, c));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  /**
+   * Linie tekstu ściskane poziomo (jak w oryginale), by zmieściły się w maxW;
+   * poniżej minSq – zmniejszany jest też rozmiar. o: { family, weight, size, lh, align, color, stroke, strokeW, minSq }
+   */
+  function squeezedLines(ctx, arr, x, y, maxW, o) {
+    arr = arr.filter(Boolean);
+    if (!arr.length) return;
+    ctx.save();
+    let size = o.size;
+    ctx.font = font(o.weight, size, o.family);
+    const widest = Math.max(...arr.map((s) => ctx.measureText(s).width));
+    let sq = Math.min(1, maxW / widest);
+    if (sq < (o.minSq || 0.75)) { size *= sq / (o.minSq || 0.75); sq = o.minSq || 0.75; }
+    ctx.font = font(o.weight, size, o.family);
+    ctx.textAlign = o.align || 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.lineJoin = 'round';
+    ctx.translate(x, y);
+    ctx.scale(sq, 1);
+    arr.forEach((s, i) => {
+      const yy = i * (o.lh || size * 1.2);
+      ctx.fillStyle = o.color;
+      ctx.fillText(s, 0, yy);
+      if (o.stroke) {
+        ctx.lineWidth = o.strokeW / sq;
+        ctx.strokeStyle = o.stroke;
+        ctx.strokeText(s, 0, yy);
+      }
+    });
+    ctx.restore();
+  }
+
+  /** Tytuł: szeryfowy, biały z cienkim konturem, wyśrodkowany w pionie wokół cy. */
+  function semTitle(ctx, R, cx, cy, o) {
+    const st = R.st;
+    const SQ = 0.84;
+    const fit = fitRich(ctx, st.title, { weight: 400, family: 'serif', size: o.size * st.titleScale, minSize: 22, lh: 1.0, maxW: o.maxW / SQ, maxH: o.maxH, upper: st.titleUpper });
+    const n = fit.lines.length;
+    const firstBl = cy - ((n - 1) * fit.lh) / 2 + fit.size * 0.3;
+    ctx.save();
+    ctx.translate(cx, 0);
+    ctx.scale(SQ, 1);
+    drawRich(ctx, R, fit, 0, firstBl, { align: 'center', color: '#fff', stroke: '#000', strokeW: o.strokeW / SQ });
+    ctx.restore();
+  }
+
+  function seminarPortrait(ctx, R) {
+    const st = R.st;
+    semBackground(ctx, 990, 1400, SEM.stops);
+    drawEmblem(ctx, 110, 66, 163, SEM.emblem);
+    squeezedLines(ctx, (st.series || '').split('\n').slice(0, 2), 268, 135, 620, { family: 'narrow', weight: 700, size: 84, lh: 83, color: SEM.yellow, minSq: 0.7 });
+    rect(ctx, 103, 277, 784, 5, '#fefefe');
+    rect(ctx, 103, 734, 784, 5, '#fefefe');
+
+    semTitle(ctx, R, 495, 508, { size: 96, maxW: 820, maxH: 430, strokeW: 1.3 });
+
+    const sp = { family: 'narrow', weight: 700, size: 64, align: 'center', color: '#fff', stroke: '#000', strokeW: 1.4, minSq: 0.8 };
+    squeezedLines(ctx, [speakerList(st)[0] || ''], 495, 840, 860, sp);
+    squeezedLines(ctx, [st.affiliation], 495, 906, 860, sp);
+    squeezedLines(ctx, seminarInfo(st), 495, 976, 860, { family: 'arial', weight: 700, size: 42, lh: 49.5, align: 'center', color: SEM.yellow, minSq: 0.8 });
+
+    const sc = { weight: 700, size: 40, family: 'script', color: SEM.script, align: 'right' };
+    if (st.invite) textFit(ctx, st.invite, 885, 1165, 780, sc);
+    if (st.host) textFit(ctx, st.host, 885, 1222, 780, sc);
+  }
+
+  function seminarBanner(ctx, R) {
+    const st = R.st;
+    semBackground(ctx, 1400, 735, [[0, '#fff584'], [0.1, '#93b68a'], [0.24, '#007a7f'], [0.45, '#00323b'],
+      [0.68, '#007a7f'], [0.8, '#549786'], [0.92, '#a3c08a'], [1, '#fff585']]);
+    drawEmblem(ctx, 62, 24, 140, SEM.emblem);
+    squeezedLines(ctx, (st.series || '').split('\n').slice(0, 2), 200, 86, 760, { family: 'narrow', weight: 700, size: 66, lh: 66, color: SEM.yellow, minSq: 0.7 });
+    rect(ctx, 60, 186, 1280, 4, '#fefefe');
+    rect(ctx, 60, 476, 1280, 4, '#fefefe');
+
+    semTitle(ctx, R, 700, 332, { size: 76, maxW: 1240, maxH: 262, strokeW: 1.1 });
+
+    const sp = { family: 'narrow', weight: 700, size: 50, align: 'left', color: '#fff', stroke: '#000', strokeW: 1.2, minSq: 0.8 };
+    squeezedLines(ctx, [speakerList(st)[0] || ''], 62, 548, 600, sp);
+    squeezedLines(ctx, [st.affiliation], 62, 602, 600, sp);
+    squeezedLines(ctx, seminarInfo(st), 1338, 530, 660, { family: 'arial', weight: 700, size: 27, lh: 33, align: 'right', color: SEM.yellow, minSq: 0.8 });
+
+    const sc = { weight: 700, size: 30, family: 'script', color: SEM.script, align: 'right' };
+    if (st.invite) textFit(ctx, st.invite, 1338, 665, 640, sc);
+    if (st.host) textFit(ctx, st.host, 1338, 705, 640, sc);
+  }
+
   // Kontrolki wyglądu używane przez szablon (app.js pokazuje tylko te).
   const TEMPLATES = {
     classic: { label: 'Klasyczny', group: 'orig', uses: ['accent', 'band', 'titleColor'], formats: { portrait: classicPortrait, landscape: classicLandscape, banner: classicBanner } },
@@ -1436,7 +1960,15 @@
     frame: { label: 'Ramka', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: framePortrait, banner: frameBanner } },
     polaroid: { label: 'Polaroid', group: 'new', uses: ['primary', 'highlight'], formats: { portrait: polaroidPortrait, banner: polaroidBanner } },
     gradient: { label: 'Gradient', group: 'new', uses: ['primary', 'highlight', 'tint', 'shade'], formats: { portrait: gradientPortrait, banner: gradientBanner } },
+    // dwóch prelegentów
+    duoClassic: { label: 'Klasyczny', mode: 'duo2', group: 'duo2', uses: ['accent', 'band', 'titleColor'], formats: { portrait: duoClassicPortrait, banner: duoClassicBanner } },
+    duoModern: { label: 'Nowoczesny', mode: 'duo2', group: 'duo2', uses: ['primary', 'highlight'], formats: { portrait: duoModernPortrait, banner: duoModernBanner } },
+    duoCircle: { label: 'Koło', mode: 'duo2', group: 'duo2', uses: ['primary', 'highlight'], formats: { portrait: duoCirclePortrait, banner: duoCircleBanner } },
+    duoDuo: { label: 'Duotone', mode: 'duo2', group: 'duo2', uses: ['duo', 'highlight', 'shade'], formats: { portrait: duoDuoPortrait, banner: duoDuoBanner } },
+    // seminarium wydziałowe
+    seminar: { label: 'Kolokwium', mode: 'seminar', group: 'seminar', uses: [], formats: { portrait: seminarPortrait, banner: seminarBanner } },
   };
+  Object.values(TEMPLATES).forEach((t) => { t.mode = t.mode || 'single'; });
 
   /**
    * Renderuje plakat na canvasie.
@@ -1453,7 +1985,7 @@
     canvas.height = Math.round(dh * k);
     const ctx = canvas.getContext('2d');
     ctx.setTransform(k, 0, 0, k, 0, 0);
-    const R = { st, img: o.img, framing: o.framing, k, preview: !!o.preview };
+    const R = { st, imgs: o.imgs, framings: o.framings, k, preview: !!o.preview, areas: [] };
     const fn = TEMPLATES[st.template].formats[o.format];
     fn(ctx, R);
     return R;
@@ -1461,5 +1993,6 @@
 
   window.Poster = { render, loadLogos, FORMATS, PAPERS, formatSize, TEMPLATES, MONTHS, DUO, fontsToLoad: [
     font(300, 20), font(400, 20), font(700, 20), font(900, 20), font(700, 20, null, true), font(900, 20, null, true),
+    font(400, 20, 'serif'), font(700, 20, 'script'), font(700, 20, 'narrow'),
   ] };
 })();

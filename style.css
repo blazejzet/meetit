@@ -16,6 +16,8 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
+  display: flex;
+  flex-direction: column;
   margin: 0;
   font: 14px/1.4 Lato, system-ui, -apple-system, "Segoe UI", sans-serif;
   color: var(--ink);
@@ -26,8 +28,9 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---------- top bar ---------- */
 .topbar {
-  height: 56px;
+  min-height: 56px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -41,11 +44,32 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .sub { opacity: .8; font-size: 14px; }
 .project-actions { display: flex; gap: 6px; }
 
+/* ---------- zakładki: typ plakatu ---------- */
+.mode-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+}
+.mode-tabs button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 14px;
+  background: transparent;
+  color: rgba(255, 255, 255, .78);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.mode-tabs button:hover { color: #fff; background: rgba(255, 255, 255, .1); }
+.mode-tabs button[aria-selected=true] { background: #fff; color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+
 /* ---------- layout ---------- */
 .app {
   display: grid;
   grid-template-columns: 380px minmax(0, 1fr);
-  height: calc(100vh - 56px);
+  flex: 1;
+  min-height: 0;
 }
 .app > * { min-width: 0; }
 .panel {
@@ -161,6 +185,9 @@ legend { font-size: 12px; font-weight: 700; color: var(--muted); padding: 0 4px;
 .drop.has { justify-content: flex-start; gap: 10px; color: var(--ink); text-align: left; }
 .drop img { width: 48px; height: 48px; object-fit: cover; border-radius: 6px; }
 .photo-controls { margin-top: 10px; }
+.photo-slot + .photo-slot { margin-top: 14px; }
+.slot-title { margin: 0 0 6px; font-weight: 700; font-size: 13px; }
+.slot-ctrl { margin-top: 8px; }
 .btns { display: flex; flex-wrap: wrap; gap: 6px; }
 
 button { cursor: pointer; }
@@ -227,8 +254,11 @@ button { cursor: pointer; }
 
 /* ---------- mobile ---------- */
 @media (max-width: 900px) {
+  body { display: block; }
   .app { grid-template-columns: minmax(0, 1fr); height: auto; }
-  .topbar { height: auto; min-height: 56px; padding: 8px 16px; flex-wrap: wrap; }
+  .topbar { height: auto; min-height: 56px; padding: 8px 16px; }
+  .mode-tabs { order: 3; width: 100%; overflow-x: auto; }
+  .mode-tabs button { flex: 1 0 auto; padding: 6px 10px; font-size: 13px; }
   .project-actions .ghost, .project-actions .btnlike { padding: 6px 9px; font-size: 13px; }
   .stage { order: -1; }
   .canvas-wrap { flex: none; height: auto; padding: 0 16px; }

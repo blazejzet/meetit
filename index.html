@@ -12,6 +12,11 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="wm">meet<b>it</b>.live</span> <span class="sub">generator plakatów</span></div>
+    <nav class="mode-tabs" role="tablist" aria-label="Typ plakatu">
+      <button type="button" role="tab" data-mode="single">meetit.live</button>
+      <button type="button" role="tab" data-mode="duo2">meetit.live · 2 prelegentów</button>
+      <button type="button" role="tab" data-mode="seminar">Seminarium Wydziałowe</button>
+    </nav>
     <div class="project-actions">
       <button type="button" id="btnSave" class="ghost" title="Zapisz projekt (z zdjęciem) do pliku JSON">Zapisz projekt</button>
       <label class="ghost btnlike" title="Wczytaj projekt z pliku JSON">Wczytaj<input type="file" id="fileProject" accept=".json,application/json" hidden></label>
@@ -21,48 +26,89 @@
 
   <main class="app">
     <aside class="panel" id="panel">
-      <section>
+      <section id="templateSection">
         <h2>Szablon</h2>
         <div id="templates" class="templates"></div>
       </section>
 
       <section>
         <h2>Treść</h2>
-        <label class="field">Tytuł
-          <textarea id="title" rows="3" spellcheck="true"></textarea>
+        <label class="field" data-modes="seminar">Nazwa cyklu
+          <textarea data-key="series" rows="2" spellcheck="true"></textarea>
+        </label>
+        <label class="field"><span data-modes="single duo2">Tytuł</span><span data-modes="seminar">Tytuł wykładu</span>
+          <textarea data-key="title" rows="3" spellcheck="true"></textarea>
           <small>Enter = nowa linia, <code>*tekst*</code> = kursywa</small>
         </label>
         <label class="check"><input type="checkbox" id="titleUpper"> WIELKIE LITERY w tytule</label>
-        <label class="field">Prelegenci <small class="inline">(jeden w linii)</small>
-          <textarea id="speakers" rows="2"></textarea>
-        </label>
-        <label class="field">Firma / afiliacja
-          <input id="affiliation" type="text">
-        </label>
+        <div data-modes="single">
+          <label class="field">Prelegenci <small class="inline">(jeden w linii)</small>
+            <textarea data-key="speakers" rows="2"></textarea>
+          </label>
+          <label class="field">Firma / afiliacja
+            <input data-key="affiliation" type="text">
+          </label>
+        </div>
+        <div data-modes="duo2">
+          <fieldset>
+            <legend>Prelegent 1</legend>
+            <div class="row2">
+              <label class="field">Imię i nazwisko<input data-key="speakers" type="text"></label>
+              <label class="field">Firma / afiliacja<input data-key="affiliation" type="text"></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Prelegent 2</legend>
+            <div class="row2">
+              <label class="field">Imię i nazwisko<input data-key="speaker2" type="text"></label>
+              <label class="field">Firma / afiliacja<input data-key="affiliation2" type="text"></label>
+            </div>
+          </fieldset>
+        </div>
+        <div data-modes="seminar">
+          <label class="field">Prelegent <small class="inline">(z tytułem naukowym)</small>
+            <input data-key="speakers" type="text">
+          </label>
+          <label class="field">Afiliacja
+            <input data-key="affiliation" type="text">
+          </label>
+        </div>
       </section>
 
       <section>
         <h2>Termin i miejsce</h2>
         <div class="row3">
-          <label class="field">Data<input id="date" type="date"></label>
-          <label class="field">Godzina<input id="time" type="time"></label>
-          <label class="field">Sala<input id="room" type="text"></label>
+          <label class="field">Data<input data-key="date" type="date"></label>
+          <label class="field">Godzina<input data-key="time" type="time"></label>
+          <label class="field" data-modes="single duo2">Sala<input data-key="room" type="text"></label>
         </div>
-        <label class="field">Miejsce
-          <textarea id="place" rows="3"></textarea>
+        <label class="field" data-modes="single duo2">Miejsce
+          <textarea data-key="place" rows="3"></textarea>
+        </label>
+        <label class="field" data-modes="seminar">Miejsce
+          <input data-key="place" type="text">
+          <small>np. „w auli WMiI UMK” – dopisywane po godzinie</small>
         </label>
       </section>
 
-      <section>
-        <h2>Zdjęcie</h2>
-        <label class="drop" id="dropzone">
-          <input type="file" id="filePhoto" accept="image/*" hidden>
-          <span id="dropText">Wybierz plik lub przeciągnij zdjęcie</span>
+      <section data-modes="seminar">
+        <h2>Ogłoszenie i zaproszenie</h2>
+        <label class="field">Pierwsza linia ogłoszenia
+          <input data-key="announce" type="text">
+          <small>Dalej automatycznie: dzień tygodnia i data, godzina, miejsce</small>
         </label>
+        <label class="field">Zaproszenie
+          <input data-key="invite" type="text">
+        </label>
+        <label class="field">Zapraszający
+          <input data-key="host" type="text">
+        </label>
+      </section>
+
+      <section data-modes="single duo2">
+        <h2 id="photoTitle">Zdjęcie</h2>
+        <div id="photoSlots"></div>
         <div class="photo-controls" id="photoControls" hidden>
-          <label class="field">Powiększenie <output id="zoomOut"></output>
-            <input id="zoom" type="range" min="1" max="4" step="0.01">
-          </label>
           <label class="field slim">Jasność <output id="brightnessOut"></output>
             <input id="brightness" type="range" min="-100" max="100" step="5">
           </label>
@@ -73,11 +119,9 @@
             <input id="saturation" type="range" min="-100" max="100" step="5">
           </label>
           <div class="btns">
-            <button type="button" id="btnFit">Reset kadru</button>
             <button type="button" id="btnFx">Reset korekty</button>
-            <button type="button" id="btnRemovePhoto" class="danger">Usuń zdjęcie</button>
           </div>
-          <small>Przeciągnij podgląd, by przesunąć kadr; kółko myszy przybliża. Kadr jest zapamiętywany osobno dla każdego formatu.</small>
+          <small>Przeciągnij zdjęcie na podglądzie, by przesunąć kadr; kółko myszy przybliża. Kadr jest zapamiętywany osobno dla każdego formatu.</small>
         </div>
       </section>
 
@@ -113,7 +157,7 @@
         <div class="field" id="shadeColorField">Kolor przyciemnienia
           <div class="swatches" id="shadeSwatches"></div>
         </div>
-        <div class="field">Kolor tła pod zdjęciem <small class="inline">(widoczny przy zdjęciu z przezroczystym tłem)</small>
+        <div class="field" data-modes="single duo2">Kolor tła pod zdjęciem <small class="inline">(widoczny przy zdjęciu z przezroczystym tłem)</small>
           <div class="swatches" id="bgSwatches"></div>
         </div>
         <label class="check" id="bandField"><input type="checkbox" id="band"> <span id="bandLabel">Półprzezroczysty pas pod tytułem</span></label>
@@ -124,7 +168,7 @@
           <input id="shade" type="range" min="0" max="0.9" step="0.05">
         </label>
         <label class="field" id="titleColorField">Kolor tekstu tytułu
-          <select id="titleColor">
+          <select id="titleColor" data-key="titleColor">
             <option value="auto">Automatyczny</option>
             <option value="dark">Ciemny</option>
             <option value="light">Jasny (z cieniem)</option>
@@ -133,10 +177,10 @@
         <label class="field slim">Rozmiar tytułu <output id="titleScaleOut"></output>
           <input id="titleScale" type="range" min="0.6" max="1.4" step="0.02">
         </label>
-        <label class="check"><input type="checkbox" id="greenIt"> Zielone „it” w logo meetit.live</label>
+        <label class="check" data-modes="single duo2"><input type="checkbox" id="greenIt"> Zielone „it” w logo meetit.live</label>
       </section>
 
-      <section>
+      <section data-modes="single duo2">
         <h2>Kody QR</h2>
         <label class="check"><input type="checkbox" id="showQr"> Pokaż kody QR</label>
         <div id="qrFields">

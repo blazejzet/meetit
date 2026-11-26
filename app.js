@@ -4,8 +4,10 @@
 
   const { render, FORMATS, PAPERS, formatSize, TEMPLATES, DUO } = window.Poster;
   const $ = (id) => document.getElementById(id);
+  const clone = (o) => JSON.parse(JSON.stringify(o));
 
-  const DEFAULTS = {
+  // wartości wspólne dla wszystkich trybów
+  const BASE = {
     template: 'classic',
     format: 'portrait',
     paper: 'a3',
@@ -13,6 +15,12 @@
     titleUpper: false,
     speakers: 'Imię Nazwisko',
     affiliation: 'Firma',
+    speaker2: '',
+    affiliation2: '',
+    series: '',
+    announce: '',
+    invite: '',
+    host: '',
     date: '2026-06-10',
     time: '18:00',
     room: 'S9',
@@ -41,6 +49,51 @@
     framing: {},
   };
 
+  /** Typy generatora (zakładki). slots – liczba zdjęć; każdy tryb ma własny stan i zdjęcia. */
+  const MODES = {
+    single: {
+      slots: 1,
+      lsKey: 'meetit-gen:v1',
+      photoKeys: ['photo'],
+      defaults: { template: 'classic' },
+    },
+    duo2: {
+      slots: 2,
+      lsKey: 'meetit-gen:v1:duo2',
+      photoKeys: ['duo2:photo0', 'duo2:photo1'],
+      defaults: {
+        template: 'duoClassic',
+        title: 'Człowiek kontra AI:\nmatematyczny pojedynek',
+        speakers: 'Imię Nazwisko',
+        affiliation: 'Firma',
+        speaker2: 'Imię Nazwisko',
+        affiliation2: 'Uczelnia',
+      },
+    },
+    seminar: {
+      slots: 0,
+      lsKey: 'meetit-gen:v1:seminar',
+      photoKeys: [],
+      filePrefix: 'kolokwium-',
+      defaults: {
+        template: 'seminar',
+        series: 'Kolokwium Wydziału\nMatematyki i Informatyki',
+        title: 'On certain Hecke algebras\narising as deformations\nof group algebras\nof Coxeter groups',
+        speakers: 'prof. dr hab. Adam Skalski',
+        affiliation: 'IM PAN',
+        date: '2025-11-05',
+        time: '10:15',
+        room: '',
+        place: 'w auli WMiI UMK',
+        announce: 'Kolokwium odbędzie się',
+        invite: 'Serdecznie zapraszam',
+        host: 'dr hab. Joanna Kułaga-Przymus, prof. UMK',
+        showQr: false,
+      },
+    },
+  };
+  const defaultsFor = (m) => Object.assign(clone(BASE), clone(MODES[m].defaults));
+
   const ACCENTS = [
     ['#d6f1fc', 'jasnoniebieski'], ['#48c4e6', 'turkusowy'], ['#a1b465', 'oliwkowy'],
     ['#ff7c44', 'pomarańczowy'], ['#f6dd6a', 'żółty'], ['#d9d9d9', 'szary'],
@@ -61,15 +114,26 @@
     ['#141414', 'grafitowy'], ['#000000', 'czarny'], ['#01214f', 'granatowy'], ['#2a0c4e', 'fioletowy'], ['#0c2a1c', 'butelkowa zieleń'],
   ];
 
-  const LS_KEY = 'meetit-gen:v1';
-  const clone = (o) => JSON.parse(JSON.stringify(o));
+  const LS_MODE = 'meetit-gen:mode';
+  // adres zakładki (#…) – można podlinkować konkretny typ generatora
+  const HASH = { single: 'meetit', duo2: 'dwoch-prelegentow', seminar: 'seminarium' };
+  const modeFromHash = () => Object.keys(HASH).find((m) => `#${HASH[m]}` === location.hash);
+  function setHash() {
+    try { history.replaceState(null, '', `#${HASH[mode]}`); } catch (e) { /* ignoruj */ }
+  }
 
-  let st = clone(DEFAULTS);
-  let photoURL = null; // dataURL oryginalnego zdjęcia
-  let img = null;      // HTMLImageElement
+  let mode = 'single';
+  const states = {};   // tryb → stan projektu
+  const photos = {};   // tryb → [{ url, img } | null, …]
+  Object.keys(MODES).forEach((m) => { states[m] = defaultsFor(m); photos[m] = []; });
+  let st = states[mode];
   let lastR = null;    // wynik ostatniego renderu podglądu
   let cssW = 0;
   let cssH = 0;
+
+  const slotCount = () => MODES[mode].slots;
+  const slotImgs = (m = mode) => Array.from({ length: MODES[m].slots }, (_, i) => (photos[m][i] ? photos[m][i].img : null));
+  const hasAnyPhoto = () => slotImgs().some(Boolean);
 
   // ---------------------------------------------------------------- storage
   const idb = {
@@ -104,19 +168,27 @@
     },
   };
 
+  const dirty = new Set();
   let saveTimer = null;
-  function persist() {
+  function flush() {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      try { localStorage.setItem(LS_KEY, JSON.stringify(st)); } catch (e) { /* brak miejsca / tryb prywatny */ }
-    }, 300);
+    dirty.forEach((m) => {
+      try { localStorage.setItem(MODES[m].lsKey, JSON.stringify(states[m])); } catch (e) { /* brak miejsca / tryb prywatny */ }
+    });
+    dirty.clear();
   }
-  function persistPhoto() {
-    idb.set('photo', photoURL).catch(() => {});
+  function persist() {
+    dirty.add(mode);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(flush, 300);
+  }
+  function persistPhoto(m, slot) {
+    const p = photos[m][slot];
+    idb.set(MODES[m].photoKeys[slot], p ? p.url : null).catch(() => {});
   }
 
   /** Stan z domyślnymi wartościami; zgodność ze starszymi projektami (formaty a4p/a4l, duotone z presetu). */
-  function loadState(s) {
+  function loadState(s, m) {
     const ren = { a4p: 'portrait', a4l: 'landscape' };
     if (ren[s.format]) s.format = ren[s.format];
     Object.keys(s.framing || {}).forEach((key) => {
@@ -124,26 +196,39 @@
       if (ren[f]) { s.framing[`${t}:${ren[f]}`] = s.framing[key]; delete s.framing[key]; }
     });
     if (!s.duoDark && DUO[s.duo]) [s.duoDark, s.duoLight] = DUO[s.duo];
-    const out = Object.assign(clone(DEFAULTS), s);
-    if (!TEMPLATES[out.template]) out.template = DEFAULTS.template;
+    const out = Object.assign(defaultsFor(m), s);
+    delete out.mode;
+    if (!TEMPLATES[out.template] || TEMPLATES[out.template].mode !== m) out.template = MODES[m].defaults.template;
     if (!TEMPLATES[out.template].formats[out.format]) out.format = 'portrait';
-    if (!PAPERS[out.paper]) out.paper = DEFAULTS.paper;
+    if (!PAPERS[out.paper]) out.paper = BASE.paper;
     return out;
   }
 
   function restoreState() {
+    Object.keys(MODES).forEach((m) => {
+      try {
+        const raw = localStorage.getItem(MODES[m].lsKey);
+        if (raw) states[m] = loadState(JSON.parse(raw), m);
+      } catch (e) { /* ignoruj */ }
+    });
     try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (raw) st = loadState(JSON.parse(raw));
+      const m = localStorage.getItem(LS_MODE);
+      if (MODES[m]) mode = m;
     } catch (e) { /* ignoruj */ }
+    mode = modeFromHash() || mode;
+    st = states[mode];
   }
 
-  async function restorePhoto() {
-    try {
-      const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000));
-      const p = await Promise.race([idb.get('photo'), timeout]);
-      if (p && !img) await setPhoto(p, { keepFraming: true, silent: true });
-    } catch (e) { /* ignoruj */ }
+  async function restorePhotos() {
+    const timeout = () => new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2000));
+    for (const m of Object.keys(MODES)) {
+      for (let i = 0; i < MODES[m].slots; i++) {
+        try {
+          const p = await Promise.race([idb.get(MODES[m].photoKeys[i]), timeout()]);
+          if (p && !photos[m][i]) await setPhoto(m, i, p, { keepFraming: true, silent: true });
+        } catch (e) { /* ignoruj */ }
+      }
+    }
   }
 
   // ---------------------------------------------------------------- helpers
@@ -155,11 +240,13 @@
     toast.t = setTimeout(() => t.classList.remove('show'), 2200);
   }
 
-  function framingFor(format, template = st.template) {
-    const key = `${template}:${format}`;
-    if (!st.framing[key]) st.framing[key] = { cx: 0.5, cy: 0.4, zoom: 1 };
-    return st.framing[key];
+  const framingKey = (format, slot, template = st.template) => `${template}:${format}` + (slot ? `#${slot}` : '');
+  function framingFor(format, slot = 0, s = st) {
+    const key = framingKey(format, slot, s.template);
+    if (!s.framing[key]) s.framing[key] = { cx: 0.5, cy: 0.4, zoom: 1 };
+    return s.framing[key];
   }
+  const framingsFor = (format) => Array.from({ length: slotCount() }, (_, i) => framingFor(format, i));
 
   function fileBase(format) {
     let d = 'meetit';
@@ -167,7 +254,7 @@
       const [y, m, day] = st.date.split('-');
       d = `${day}${m}${y.slice(2)}`;
     }
-    return d + FORMATS[format].suffix;
+    return (MODES[mode].filePrefix || '') + d + FORMATS[format].suffix;
   }
 
   function loadImage(src) {
@@ -199,53 +286,134 @@
   }
 
   // ---------------------------------------------------------------- photo
-  async function setPhoto(dataURL, o = {}) {
+  /** Usuwa zapamiętane kadry danego slotu (we wszystkich szablonach i formatach). */
+  function clearFraming(s, slot) {
+    Object.keys(s.framing).forEach((k) => {
+      const ks = k.includes('#') ? Number(k.split('#')[1]) : 0;
+      if (ks === slot) delete s.framing[k];
+    });
+  }
+
+  async function setPhoto(m, slot, dataURL, o = {}) {
+    let img;
     try {
       img = await loadImage(dataURL);
     } catch (e) {
       toast('Nie udało się wczytać obrazu');
       return;
     }
-    photoURL = dataURL;
-    if (!o.keepFraming) st.framing = {};
-    if (!o.silent) persistPhoto();
+    photos[m][slot] = { url: dataURL, img };
+    if (!o.keepFraming) clearFraming(states[m], slot);
+    if (!o.silent) persistPhoto(m, slot);
+    if (m === mode) {
+      syncPhotoUI();
+      draw();
+      persist();
+    }
+  }
+
+  function removePhoto(slot) {
+    photos[mode][slot] = null;
+    clearFraming(st, slot);
+    persistPhoto(mode, slot);
     syncPhotoUI();
     draw();
     persist();
   }
 
-  function removePhoto() {
-    img = null;
-    photoURL = null;
-    st.framing = {};
-    persistPhoto();
-    syncPhotoUI();
-    draw();
-    persist();
+  function removeAllPhotos(m) {
+    for (let i = 0; i < MODES[m].slots; i++) {
+      photos[m][i] = null;
+      persistPhoto(m, i);
+    }
+  }
+
+  async function handlePhotoFile(file, slot) {
+    if (!slotCount()) { toast('Ten typ plakatu nie używa zdjęć'); return; }
+    if (!file || !file.type.startsWith('image/')) { toast('To nie jest plik graficzny'); return; }
+    if (slot == null) {
+      slot = slotImgs().findIndex((x) => !x);
+      if (slot < 0) slot = 0;
+    }
+    await setPhoto(mode, slot, await readFile(file));
+    toast(slotCount() > 1
+      ? `Zdjęcie prelegenta ${slot + 1} wczytane – przeciągnij je na podglądzie, by ustawić kadr`
+      : 'Zdjęcie wczytane – przeciągnij podgląd, by ustawić kadr');
+  }
+
+  const slotEls = [];
+  function buildPhotoSlots() {
+    const wrap = $('photoSlots');
+    wrap.innerHTML = '';
+    for (let i = 0; i < 2; i++) {
+      const el = document.createElement('div');
+      el.className = 'photo-slot';
+      el.innerHTML = `
+        <div class="slot-title"></div>
+        <label class="drop">
+          <input type="file" accept="image/*" hidden>
+          <span class="drop-text"></span>
+        </label>
+        <div class="slot-ctrl" hidden>
+          <label class="field slim">Powiększenie <output></output>
+            <input type="range" min="1" max="4" step="0.01">
+          </label>
+          <div class="btns">
+            <button type="button" data-act="fit">Reset kadru</button>
+            <button type="button" data-act="remove" class="danger">Usuń zdjęcie</button>
+          </div>
+        </div>`;
+      const s = {
+        root: el,
+        title: el.querySelector('.slot-title'),
+        drop: el.querySelector('.drop'),
+        file: el.querySelector('input[type=file]'),
+        text: el.querySelector('.drop-text'),
+        ctrl: el.querySelector('.slot-ctrl'),
+        zoom: el.querySelector('input[type=range]'),
+        zoomOut: el.querySelector('output'),
+      };
+      s.file.addEventListener('change', (e) => { handlePhotoFile(e.target.files[0], i); e.target.value = ''; });
+      ['dragenter', 'dragover'].forEach((ev) => s.drop.addEventListener(ev, (e) => { e.preventDefault(); s.drop.classList.add('over'); }));
+      ['dragleave', 'drop'].forEach((ev) => s.drop.addEventListener(ev, () => s.drop.classList.remove('over')));
+      s.drop.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); handlePhotoFile(e.dataTransfer.files[0], i); });
+      s.zoom.addEventListener('input', () => {
+        framingFor(st.format, i).zoom = Number(s.zoom.value);
+        draw();
+        persist();
+      });
+      el.querySelector('[data-act=fit]').onclick = () => { delete st.framing[framingKey(st.format, i)]; draw(); persist(); };
+      el.querySelector('[data-act=remove]').onclick = () => removePhoto(i);
+      slotEls.push(s);
+      wrap.appendChild(el);
+    }
   }
 
   function syncPhotoUI() {
-    const dz = $('dropzone');
-    const t = $('dropText');
-    $('photoControls').hidden = !img;
-    dz.classList.toggle('has', !!img);
-    dz.querySelectorAll('img').forEach((n) => n.remove());
-    if (img) {
-      const th = document.createElement('img');
-      th.src = photoURL;
-      th.alt = '';
-      dz.insertBefore(th, t);
-      t.textContent = `${img.naturalWidth}×${img.naturalHeight} px – kliknij, aby zmienić`;
-    } else {
-      t.textContent = 'Wybierz plik lub przeciągnij zdjęcie';
-    }
-    $('preview').classList.toggle('nophoto', !img);
-  }
-
-  async function handlePhotoFile(file) {
-    if (!file || !file.type.startsWith('image/')) { toast('To nie jest plik graficzny'); return; }
-    await setPhoto(await readFile(file));
-    toast('Zdjęcie wczytane – przeciągnij podgląd, by ustawić kadr');
+    const n = slotCount();
+    const imgs = slotImgs();
+    $('photoTitle').textContent = n > 1 ? 'Zdjęcia' : 'Zdjęcie';
+    slotEls.forEach((s, i) => {
+      s.root.hidden = i >= n;
+      const img = imgs[i];
+      const p = photos[mode][i];
+      s.title.hidden = n < 2;
+      s.title.textContent = `Prelegent ${i + 1}`;
+      s.ctrl.hidden = !img;
+      s.drop.classList.toggle('has', !!img);
+      s.drop.querySelectorAll('img').forEach((x) => x.remove());
+      if (img) {
+        const th = document.createElement('img');
+        th.src = p.url;
+        th.alt = '';
+        s.drop.insertBefore(th, s.text);
+        s.text.textContent = `${img.naturalWidth}×${img.naturalHeight} px – kliknij, aby zmienić`;
+      } else {
+        s.text.textContent = 'Wybierz plik lub przeciągnij zdjęcie';
+      }
+    });
+    $('photoControls').hidden = !imgs.some(Boolean);
+    $('preview').classList.toggle('nophoto', !imgs.some(Boolean));
   }
 
   // ---------------------------------------------------------------- render
@@ -272,14 +440,18 @@
     const cv = $('preview');
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
     const [dw] = FORMATS[st.format].design;
-    lastR = render(cv, st, { format: st.format, img, framing: framingFor(st.format), scale: (cssW / dw) * dpr, preview: true });
+    lastR = render(cv, st, { format: st.format, imgs: slotImgs(), framings: framingsFor(st.format), scale: (cssW / dw) * dpr, preview: true });
     cv.style.width = cssW + 'px';
     cv.style.height = cssH + 'px';
     const f = formatSize(st.format, st.paper);
     $('meta').textContent = `${TEMPLATES[st.template].label} · ${f.label} · ${f.px[0]}×${f.px[1]} px` +
       (f.mm ? ' (300 dpi)' : '') + ` · plik: ${fileBase(st.format)}`;
-    $('zoom').value = framingFor(st.format).zoom;
-    $('zoomOut').textContent = Math.round(framingFor(st.format).zoom * 100) + '%';
+    slotEls.forEach((s, i) => {
+      if (i >= slotCount()) return;
+      const z = framingFor(st.format, i).zoom;
+      s.zoom.value = z;
+      s.zoomOut.textContent = Math.round(z * 100) + '%';
+    });
   }
 
   // ---------------------------------------------------------------- export
@@ -287,7 +459,7 @@
     const q = Number($('quality').value) || 1;
     const c = document.createElement('canvas');
     const scale = (formatSize(format, st.paper).px[0] / FORMATS[format].design[0]) * q;
-    render(c, st, { format, img, framing: clone(framingFor(format)), scale });
+    render(c, st, { format, imgs: slotImgs(), framings: clone(framingsFor(format)), scale });
     return c;
   }
 
@@ -331,7 +503,6 @@
   }
 
   // ---------------------------------------------------------------- bindings
-  const TEXT_FIELDS = ['title', 'speakers', 'affiliation', 'date', 'time', 'room', 'place', 'titleColor'];
   const CHECKS = ['titleUpper', 'band', 'greenIt', 'showQr'];
   const pct = (v) => Math.round(v * 100) + '%';
   const signed = (v) => (v > 0 ? '+' : '') + v;
@@ -346,12 +517,14 @@
     shade: 'shadeField', shadeColor: 'shadeColorField', band: 'bandField', titleColor: 'titleColorField',
   };
   const QR_FIELDS = ['label', 'text', 'url'];
+  const keyed = () => document.querySelectorAll('[data-key]');
 
   function syncForm() {
-    TEXT_FIELDS.forEach((k) => { $(k).value = st[k] ?? ''; });
+    keyed().forEach((el) => { el.value = st[el.dataset.key] ?? ''; });
     CHECKS.forEach((k) => { $(k).checked = !!st[k]; });
     RANGES.forEach(([k, f]) => { $(k).value = st[k]; $(k + 'Out').textContent = f(st[k]); });
     ['qr1', 'qr2'].forEach((q) => QR_FIELDS.forEach((f) => { $(q + f).value = st[q][f] || ''; }));
+    document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
     syncDuo();
     buildSegs();
     buildSwatches();
@@ -360,13 +533,14 @@
   }
 
   function syncVisibility() {
+    document.querySelectorAll('[data-modes]').forEach((el) => { el.hidden = !el.dataset.modes.split(' ').includes(mode); });
     const t = st.template;
     const uses = TEMPLATES[t].uses;
     Object.entries(LOOK_FIELDS).forEach(([k, id]) => { $(id).hidden = !uses.includes(k); });
     $('bandOpacityField').hidden = !uses.includes('band') || !st.band;
     $('bandLabel').textContent = t === 'block' ? 'Jasny pas pod tytułem' : 'Półprzezroczysty pas pod tytułem';
     $('shadeLabel').textContent = t === 'gradient' ? 'Krycie karty z tekstem' : 'Przyciemnienie zdjęcia';
-    $('saturationField').hidden = t === 'duo'; // duotone i tak zastępuje kolory zdjęcia
+    $('saturationField').hidden = t === 'duo' || t === 'duoDuo'; // duotone i tak zastępuje kolory zdjęcia
     $('qrFields').hidden = !st.showQr;
     $('btnPdf').disabled = st.format === 'banner';
     $('btnPdf').title = st.format === 'banner' ? 'PDF dostępny dla formatów A3 / A4' : '';
@@ -380,20 +554,31 @@
     $('duoLight').value = st.duoLight;
   }
 
+  const TEMPLATE_GROUPS = {
+    single: { orig: 'Na wzór dotychczasowych plakatów', new: 'Nowe propozycje' },
+    duo2: { duo2: 'Szablony dla dwóch prelegentów' },
+    seminar: { seminar: '' },
+  };
+
   function buildSegs() {
     const tw = $('templates');
     tw.innerHTML = '';
-    const groups = { orig: 'Na wzór dotychczasowych plakatów', new: 'Nowe propozycje' };
-    Object.entries(groups).forEach(([g, label]) => {
-      const cap = document.createElement('div');
-      cap.className = 'seg-caption';
-      cap.textContent = label;
+    const groups = {};
+    Object.entries(TEMPLATE_GROUPS[mode]).forEach(([g, label]) => {
+      if (label) {
+        const cap = document.createElement('div');
+        cap.className = 'seg-caption';
+        cap.textContent = label;
+        tw.appendChild(cap);
+      }
       const seg = document.createElement('div');
       seg.className = 'seg';
-      tw.append(cap, seg);
+      tw.appendChild(seg);
       groups[g] = seg;
     });
-    Object.entries(TEMPLATES).forEach(([k, t]) => {
+    const list = Object.entries(TEMPLATES).filter(([, t]) => t.mode === mode);
+    $('templateSection').hidden = list.length < 2;
+    list.forEach(([k, t]) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = t.label;
@@ -427,7 +612,7 @@
     });
     const fw = $('formats');
     fw.innerHTML = '';
-    Object.entries(FORMATS).forEach(([k, f]) => {
+    Object.entries(FORMATS).forEach(([k]) => {
       const b = document.createElement('button');
       b.type = 'button';
       b.textContent = formatSize(k, st.paper).label;
@@ -480,8 +665,20 @@
     make('bgSwatches', BGS, 'bgColor');
   }
 
+  function switchMode(m) {
+    if (m === mode || !MODES[m]) return;
+    flush();
+    mode = m;
+    st = states[m];
+    try { localStorage.setItem(LS_MODE, m); } catch (e) { /* ignoruj */ }
+    setHash();
+    syncForm();
+    draw();
+  }
+
   function bind() {
-    TEXT_FIELDS.forEach((k) => $(k).addEventListener('input', () => { st[k] = $(k).value; draw(); persist(); }));
+    document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => switchMode(b.dataset.mode)));
+    keyed().forEach((el) => el.addEventListener('input', () => { st[el.dataset.key] = el.value; draw(); persist(); }));
     CHECKS.forEach((k) => $(k).addEventListener('change', () => { st[k] = $(k).checked; syncVisibility(); draw(); persist(); }));
     RANGES.forEach(([k, f]) => $(k).addEventListener('input', () => {
       st[k] = Number($(k).value);
@@ -509,30 +706,23 @@
       persist();
     }));
 
-    // zdjęcie
-    $('filePhoto').addEventListener('change', (e) => { handlePhotoFile(e.target.files[0]); e.target.value = ''; });
-    $('zoom').addEventListener('input', () => {
-      framingFor(st.format).zoom = Number($('zoom').value);
-      draw();
-      persist();
-    });
-    $('btnFit').onclick = () => { delete st.framing[`${st.template}:${st.format}`]; draw(); persist(); };
+    // zdjęcia
     $('btnFx').onclick = () => {
       FX.forEach((k) => { st[k] = 0; });
       syncForm();
       draw();
       persist();
     };
-    $('btnRemovePhoto').onclick = removePhoto;
-
-    const dz = $('dropzone');
-    ['dragenter', 'dragover'].forEach((ev) => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); }));
-    ['dragleave', 'drop'].forEach((ev) => dz.addEventListener(ev, () => dz.classList.remove('over')));
-    dz.addEventListener('drop', (e) => { e.preventDefault(); handlePhotoFile(e.dataTransfer.files[0]); });
 
     const wrap = $('canvasWrap');
     wrap.addEventListener('dragover', (e) => e.preventDefault());
-    wrap.addEventListener('drop', (e) => { e.preventDefault(); if (e.dataTransfer.files[0]) handlePhotoFile(e.dataTransfer.files[0]); });
+    wrap.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (!file) return;
+      const a = e.target === $('preview') ? areaAt(...toDesign(e)) : null;
+      handlePhotoFile(file, a ? a.slot : undefined);
+    });
     window.addEventListener('paste', (e) => {
       const it = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
       if (it) handlePhotoFile(it.getAsFile());
@@ -553,7 +743,7 @@
 
     // projekt
     $('btnSave').onclick = () => {
-      const data = { app: 'meetit-gen', version: 1, state: st, photo: photoURL };
+      const data = { app: 'meetit-gen', version: 2, mode, state: st, photos: slotImgs().map((x, i) => (x ? photos[mode][i].url : null)) };
       download(new Blob([JSON.stringify(data)], { type: 'application/json' }), fileBase(st.format).replace(/[A-Z]$/, '') + '-projekt.json');
     };
     $('fileProject').addEventListener('change', async (e) => {
@@ -563,9 +753,19 @@
       try {
         const data = JSON.parse(await readFile(f, 'text'));
         if (data.app !== 'meetit-gen') throw new Error('nieznany format');
-        st = loadState(data.state);
+        const m = MODES[data.mode] ? data.mode : 'single';
+        const list = data.photos || [data.photo];
+        flush();
+        mode = m;
+        try { localStorage.setItem(LS_MODE, m); } catch (err) { /* ignoruj */ }
+        setHash();
+        states[m] = loadState(data.state, m);
+        st = states[m];
+        removeAllPhotos(m);
+        for (let i = 0; i < MODES[m].slots; i++) {
+          if (list[i]) await setPhoto(m, i, list[i], { keepFraming: true });
+        }
         syncForm();
-        if (data.photo) await setPhoto(data.photo, { keepFraming: true }); else removePhoto();
         draw();
         persist();
         toast('Projekt wczytany');
@@ -574,33 +774,60 @@
       }
     });
     $('btnReset').onclick = () => {
-      if (!confirm('Wyczyścić bieżący projekt i wrócić do przykładowych danych?')) return;
-      st = clone(DEFAULTS);
-      removePhoto();
+      if (!confirm('Wyczyścić bieżący projekt (w tej zakładce) i wrócić do przykładowych danych?')) return;
+      states[mode] = defaultsFor(mode);
+      st = states[mode];
+      removeAllPhotos(mode);
       syncForm();
       draw();
+      persist();
     };
 
     window.addEventListener('resize', draw);
+    window.addEventListener('hashchange', () => { const m = modeFromHash(); if (m) switchMode(m); });
   }
+
+  // ---------------------------------------------------------------- kadrowanie na podglądzie
+  /** Współrzędne zdarzenia we współrzędnych projektowych szablonu. */
+  function toDesign(e) {
+    const box = $('preview').getBoundingClientRect();
+    const k = FORMATS[st.format].design[0] / box.width;
+    return [(e.clientX - box.left) * k, (e.clientY - box.top) * k];
+  }
+
+  /** Obszar zdjęcia pod punktem (ostatni narysowany wygrywa); przy jednym zdjęciu – zawsze ono. */
+  function areaAt(x, y) {
+    if (!lastR) return null;
+    const as = lastR.areas;
+    for (let i = as.length - 1; i >= 0; i--) {
+      const a = as[i];
+      const r = a.rect;
+      if (a.hit ? a.hit(x, y) : x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) return a;
+    }
+    return slotCount() === 1 ? as.find((a) => a.slot === 0) || null : null;
+  }
+  const liveArea = (slot) => lastR && lastR.areas.find((a) => a.slot === slot && a.draw);
 
   function bindCanvasPan() {
     const cv = $('preview');
     let drag = null;
-    const toDesign = (dxCss) => dxCss * FORMATS[st.format].design[0] / cssW;
 
     cv.addEventListener('pointerdown', (e) => {
-      if (!img || !lastR || !lastR.photoDraw) return;
-      drag = { x: e.clientX, y: e.clientY };
+      const a = areaAt(...toDesign(e));
+      if (!a || !a.draw) return;
+      drag = { p: toDesign(e), slot: a.slot };
       cv.setPointerCapture(e.pointerId);
       cv.classList.add('dragging');
     });
     cv.addEventListener('pointermove', (e) => {
-      if (!drag || !lastR.photoDraw) return;
-      const f = framingFor(st.format);
-      f.cx -= toDesign(e.clientX - drag.x) / lastR.photoDraw.dw;
-      f.cy -= toDesign(e.clientY - drag.y) / lastR.photoDraw.dh;
-      drag = { x: e.clientX, y: e.clientY };
+      if (!drag) return;
+      const a = liveArea(drag.slot);
+      if (!a) return;
+      const p = toDesign(e);
+      const f = framingFor(st.format, drag.slot);
+      f.cx -= (p[0] - drag.p[0]) / a.draw.dw;
+      f.cy -= (p[1] - drag.p[1]) / a.draw.dh;
+      drag.p = p;
       drawNow();
     });
     const end = () => {
@@ -613,14 +840,13 @@
     cv.addEventListener('pointercancel', end);
 
     cv.addEventListener('wheel', (e) => {
-      if (!img || !lastR || !lastR.photoDraw) return;
+      const [px, py] = toDesign(e);
+      const a = areaAt(px, py);
+      if (!a || !a.draw) return;
       e.preventDefault();
-      const f = framingFor(st.format);
-      const r = lastR.photoRect;
-      const box = cv.getBoundingClientRect();
-      const px = toDesign(e.clientX - box.left);
-      const py = toDesign(e.clientY - box.top);
-      const { dw, dh } = lastR.photoDraw;
+      const f = framingFor(st.format, a.slot);
+      const r = a.rect;
+      const { dw, dh } = a.draw;
       const u = f.cx + (px - (r.x + r.w / 2)) / dw;
       const v = f.cy + (py - (r.y + r.h / 2)) / dh;
       const z = Math.min(4, Math.max(1, f.zoom * Math.exp(-e.deltaY * 0.0015)));
@@ -636,6 +862,8 @@
   // ---------------------------------------------------------------- init
   function init() {
     restoreState();
+    setHash();
+    buildPhotoSlots();
     syncForm();
     bind();
     draw();
@@ -645,7 +873,7 @@
       .then(draw);
     if (document.fonts) document.fonts.addEventListener('loadingdone', draw);
     window.Poster.loadLogos().then(draw);
-    restorePhoto();
+    restorePhotos();
   }
 
   init();
