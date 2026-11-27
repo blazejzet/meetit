@@ -1902,7 +1902,7 @@
     ctx.save();
     ctx.translate(cx, 0);
     ctx.scale(SQ, 1);
-    drawRich(ctx, R, fit, 0, firstBl, { align: 'center', color: '#fff', stroke: '#000', strokeW: o.strokeW / SQ });
+    drawRich(ctx, R, fit, 0, firstBl, { align: 'center', color: '#fff' });
     ctx.restore();
   }
 
@@ -1914,9 +1914,9 @@
     rect(ctx, 103, 277, 784, 5, '#fefefe');
     rect(ctx, 103, 734, 784, 5, '#fefefe');
 
-    semTitle(ctx, R, 495, 508, { size: 96, maxW: 820, maxH: 430, strokeW: 1.3 });
+    semTitle(ctx, R, 495, 508, { size: 96, maxW: 820, maxH: 430 });
 
-    const sp = { family: 'narrow', weight: 700, size: 64, align: 'center', color: '#fff', stroke: '#000', strokeW: 1.4, minSq: 0.8 };
+    const sp = { family: 'narrow', weight: 700, size: 64, align: 'center', color: '#fff', minSq: 0.8 };
     squeezedLines(ctx, [speakerList(st)[0] || ''], 495, 840, 860, sp);
     squeezedLines(ctx, [st.affiliation], 495, 906, 860, sp);
     squeezedLines(ctx, seminarInfo(st), 495, 976, 860, { family: 'arial', weight: 700, size: 42, lh: 49.5, align: 'center', color: SEM.yellow, minSq: 0.8 });
@@ -1935,9 +1935,9 @@
     rect(ctx, 60, 186, 1280, 4, '#fefefe');
     rect(ctx, 60, 476, 1280, 4, '#fefefe');
 
-    semTitle(ctx, R, 700, 332, { size: 76, maxW: 1240, maxH: 262, strokeW: 1.1 });
+    semTitle(ctx, R, 700, 332, { size: 76, maxW: 1240, maxH: 262 });
 
-    const sp = { family: 'narrow', weight: 700, size: 50, align: 'left', color: '#fff', stroke: '#000', strokeW: 1.2, minSq: 0.8 };
+    const sp = { family: 'narrow', weight: 700, size: 50, align: 'left', color: '#fff', minSq: 0.8 };
     squeezedLines(ctx, [speakerList(st)[0] || ''], 62, 548, 600, sp);
     squeezedLines(ctx, [st.affiliation], 62, 602, 600, sp);
     squeezedLines(ctx, seminarInfo(st), 1338, 530, 660, { family: 'arial', weight: 700, size: 27, lh: 33, align: 'right', color: SEM.yellow, minSq: 0.8 });
